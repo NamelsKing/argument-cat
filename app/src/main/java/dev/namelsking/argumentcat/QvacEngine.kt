@@ -52,30 +52,40 @@ class QvacEngine(private val context: Context) : CatEngine {
     }
 
     private fun responseFormat(shape: OutputShape): QvacResponseFormat {
-        if (shape == OutputShape.TEXT) return QvacResponseFormat.Text
-        val schema = buildJsonObject {
-            put("type", "object")
-            put("additionalProperties", false)
-            putJsonArray("required") {
-                if (shape == OutputShape.SETUP) add("concern")
-                else { add("winner"); add("evidenceTurn"); add("reason") }
-            }
-            putJsonObject("properties") {
-                if (shape == OutputShape.SETUP) {
+        if (shape == OutputShape.Text) return QvacResponseFormat.Text
+        val schema = when (shape) {
+            OutputShape.Setup -> buildJsonObject {
+                put("type", "object"); put("additionalProperties", false)
+                putJsonArray("required") { add("concern") }
+                putJsonObject("properties") {
                     putJsonObject("concern") { put("type", "string"); put("minLength", 1); put("maxLength", 240) }
-                } else {
-                    putJsonObject("winner") { put("type", "string"); putJsonArray("enum") { add("player"); add("cat") } }
-                    putJsonObject("evidenceTurn") {
-                        putJsonArray("anyOf") {
-                            add(buildJsonObject { put("type", "null") })
-                            add(buildJsonObject { put("type", "integer"); put("minimum", 1); put("maximum", 10) })
-                        }
-                    }
-                    putJsonObject("reason") { put("type", "string"); put("minLength", 1); put("maxLength", 240) }
                 }
             }
+            is OutputShape.Verdict -> buildJsonObject {
+                require(shape.catTurns.isNotEmpty()) { "No cat replies to judge" }
+                putJsonArray("anyOf") {
+                    for (winner in listOf("cat", "player")) add(buildJsonObject {
+                        put("type", "object"); put("additionalProperties", false)
+                        putJsonArray("required") { add("winner"); add("evidenceTurn"); add("reason") }
+                        putJsonObject("properties") {
+                            putJsonObject("winner") { put("type", "string"); putJsonArray("enum") { add(winner) } }
+                            putJsonObject("evidenceTurn") {
+                                if (winner == "cat") put("type", "null")
+                                else {
+                                    put("type", "integer")
+                                    putJsonArray("enum") { shape.catTurns.distinct().forEach { add(it) } }
+                                }
+                            }
+                            putJsonObject("reason") { put("type", "string"); put("minLength", 1); put("maxLength", 180) }
+                        }
+                    })
+                }
+            }
+            OutputShape.Text -> error("Text has no JSON schema")
         }
-        return QvacResponseFormat.JsonSchema("argument_cat_${shape.name.lowercase()}", schema, strict = true)
+        return QvacResponseFormat.JsonSchema(
+            if (shape == OutputShape.Setup) "argument_cat_setup" else "argument_cat_verdict", schema, strict = true,
+        )
     }
 
     override suspend fun complete(system: String, history: List<Line>, shape: OutputShape): String = lock.withLock {
@@ -86,8 +96,8 @@ class QvacEngine(private val context: Context) : CatEngine {
                 history = listOf(QvacMessage.system(system)) + history.map { QvacMessage(it.role, it.text) },
                 options = QvacCompletionOptions(
                     generation = QvacGenerationOptions(
-                        predict = if (shape == OutputShape.TEXT) 96 else 160, reasoningBudget = 0,
-                        temperature = if (shape == OutputShape.TEXT) 0.7 else 0.2, repeatPenalty = 1.1,
+                        predict = if (shape == OutputShape.Text) 96 else 160, reasoningBudget = 0,
+                        temperature = if (shape == OutputShape.Text) 0.7 else 0.2, repeatPenalty = 1.1,
                     ),
                     responseFormat = responseFormat(shape),
                     kvCache = QvacKvCache.Enabled(false),

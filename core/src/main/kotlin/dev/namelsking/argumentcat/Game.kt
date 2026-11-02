@@ -33,11 +33,15 @@ data class GameState(
     val status: String = "A very stubborn cat. A very short argument.",
 )
 
-enum class OutputShape { TEXT, SETUP, VERDICT }
+sealed interface OutputShape {
+    data object Text : OutputShape
+    data object Setup : OutputShape
+    data class Verdict(val catTurns: List<Int>) : OutputShape
+}
 
 interface CatEngine {
     suspend fun prepare(status: (String) -> Unit)
-    suspend fun complete(system: String, history: List<Line>, shape: OutputShape = OutputShape.TEXT): String
+    suspend fun complete(system: String, history: List<Line>, shape: OutputShape = OutputShape.Text): String
 }
 
 object Rules {
@@ -101,7 +105,7 @@ class GameStore(private val scope: CoroutineScope, private val engine: CatEngine
                 val s = state.value.scenario
                 val raw = engine.complete(
                     "You are setting up a playful fictional cat argument. Return ONLY JSON with concern (one small hidden reason the cat might change its mind). Do not write dialogue or decide the outcome. No other keys.",
-                    listOf(Line("user", "Stance: ${s.stance}\nGoal: ${s.goal}\nSuggested concern: ${s.concern}")), OutputShape.SETUP,
+                    listOf(Line("user", "Stance: ${s.stance}\nGoal: ${s.goal}\nSuggested concern: ${s.concern}")), OutputShape.Setup,
                 )
                 if (id != epoch) return@launch
                 val setup = Rules.setup(raw, s)
@@ -148,7 +152,8 @@ class GameStore(private val scope: CoroutineScope, private val engine: CatEngine
                 var verdict: Verdict? = null
                 repeat(2) { attempt ->
                     if (verdict == null) {
-                        val raw = engine.complete(system, listOf(Line("user", transcript + if (attempt == 1) "\nReturn a valid JSON object with exactly the required keys." else "")), OutputShape.VERDICT)
+                        val shape = OutputShape.Verdict(before.lines.filter { it.role == "assistant" && it.turn > 0 }.map { it.turn })
+                        val raw = engine.complete(system, listOf(Line("user", transcript + if (attempt == 1) "\nReturn a valid JSON object with exactly the required keys." else "")), shape)
                         verdict = runCatching { Rules.verdict(raw, before.lines) }.getOrNull()
                     }
                 }

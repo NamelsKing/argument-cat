@@ -9,12 +9,14 @@ import kotlin.test.*
 class GameTest {
     private class Fake : CatEngine {
         var calls = 0
+        var lastShape: OutputShape? = null
         var fail = false
         var wait: CompletableDeferred<Unit>? = null
         var progress: ((String) -> Unit)? = null
         override suspend fun prepare(status: (String) -> Unit) { progress = status; status("Ready") }
         override suspend fun complete(system: String, history: List<Line>, shape: OutputShape): String {
             calls++
+            lastShape = shape
             wait?.await()
             if (fail) error("Offline error")
             return when {
@@ -31,6 +33,7 @@ class GameTest {
         assertEquals(Phase.FINISHED, game.state.value.phase)
         assertEquals(3, game.state.value.completed)
         assertEquals("player", game.state.value.verdict?.winner)
+        assertEquals(OutputShape.Verdict(listOf(1, 2, 3)), engine.lastShape)
         val calls = engine.calls
         game.send("One more"); game.judge(); runCurrent()
         assertEquals(calls, engine.calls)
@@ -60,6 +63,7 @@ class GameTest {
         val lines = listOf(Line("user", "I win", 1), Line("assistant", "No", 2))
         assertFails { Rules.verdict("{\"winner\":\"player\",\"evidenceTurn\":1,\"reason\":\"Agreed\"}", lines) }
         assertFails { Rules.verdict("{\"winner\":\"player\",\"evidenceTurn\":99,\"reason\":\"Agreed\"}", lines) }
+        assertFails { Rules.verdict("{\"winner\":\"cat\",\"evidenceTurn\":2,\"reason\":\"No agreement\"}", lines) }
         assertEquals("cat", Rules.verdict("{\"winner\":\"cat\",\"evidenceTurn\":null,\"reason\":\"No agreement\"}", lines).winner)
     }
     @Test fun `invalid setup uses scenario fallback and empty reply is rejected`() {
