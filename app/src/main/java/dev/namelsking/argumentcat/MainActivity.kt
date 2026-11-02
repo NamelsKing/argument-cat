@@ -18,6 +18,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -55,6 +58,9 @@ private fun GameScreen(vm: GameViewModel, requestMicrophone: () -> Unit) {
     val voice by vm.voice.collectAsState()
     val muted by vm.muted.collectAsState()
     val input by vm.input.collectAsState()
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val list = rememberLazyListState()
     val busy = game.phase in listOf(Phase.PREPARING, Phase.THINKING, Phase.JUDGING)
     val listening = voice == "recording"
@@ -77,7 +83,7 @@ private fun GameScreen(vm: GameViewModel, requestMicrophone: () -> Unit) {
                     voice == "speaking" -> "speaking"
                     busy || voice in listOf("transcribing", "synthesizing") -> "thinking"
                     else -> "neutral"
-                }, Modifier.size(122.dp),
+                }, Modifier.size(if (keyboardVisible) 70.dp else 122.dp),
             )
             if (game.phase == Phase.READY) {
                 Text("Change my mind.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -131,7 +137,7 @@ private fun GameScreen(vm: GameViewModel, requestMicrophone: () -> Unit) {
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { if (listening) vm.finishRecording() else requestMicrophone() }, enabled = voice != "transcribing") { Text(if (listening) "Stop" else "Speak") }
-                        Button(onClick = vm::send, enabled = input.isNotBlank() && voice !in listOf("recording", "transcribing"), modifier = Modifier.weight(1f)) { Text("Send") }
+                        Button(onClick = { keyboard?.hide(); focus.clearFocus(); vm.send() }, enabled = input.isNotBlank() && voice !in listOf("recording", "transcribing"), modifier = Modifier.weight(1f)) { Text("Send") }
                         TextButton(onClick = vm::judge, enabled = game.completed > 0 && voice !in listOf("recording", "transcribing")) { Text("Verdict") }
                     }
                     TextButton(onClick = vm::restart) { Text("Start over") }

@@ -43,23 +43,53 @@ class QvacEngine(private val context: Context) : CatEngine {
     }
 
     private val llmConfig get() = buildJsonObject {
-        put("ctx_size", 8192); put("device", "cpu"); put("gpu_layers", 0); put("n_threads", 4)
+        put("ctx_size", 4096); put("device", "cpu"); put("gpu_layers", 0); put("n_threads", 4)
     }
     override suspend fun prepare(status: (String) -> Unit) = lock.withLock {
         this.status = status
-        withTimeout(15 * 60_000L) { model(Models.QWEN3_600M_INST_Q4, llmConfig) }
+        withTimeout(15 * 60_000L) { model(Models.QWEN3_5_0_8B_MULTIMODAL_Q4_K_M, llmConfig) }
         Unit
     }
 
-    override suspend fun complete(system: String, history: List<Line>, json: Boolean): String = lock.withLock {
-        val id = withTimeout(15 * 60_000L) { model(Models.QWEN3_600M_INST_Q4, llmConfig) }
+    private fun responseFormat(shape: OutputShape): QvacResponseFormat {
+        if (shape == OutputShape.TEXT) return QvacResponseFormat.Text
+        val schema = buildJsonObject {
+            put("type", "object")
+            put("additionalProperties", false)
+            putJsonArray("required") {
+                if (shape == OutputShape.SETUP) add("concern")
+                else { add("winner"); add("evidenceTurn"); add("reason") }
+            }
+            putJsonObject("properties") {
+                if (shape == OutputShape.SETUP) {
+                    putJsonObject("concern") { put("type", "string"); put("minLength", 1); put("maxLength", 240) }
+                } else {
+                    putJsonObject("winner") { put("type", "string"); putJsonArray("enum") { add("player"); add("cat") } }
+                    putJsonObject("evidenceTurn") {
+                        putJsonArray("anyOf") {
+                            add(buildJsonObject { put("type", "null") })
+                            add(buildJsonObject { put("type", "integer"); put("minimum", 1); put("maximum", 10) })
+                        }
+                    }
+                    putJsonObject("reason") { put("type", "string"); put("minLength", 1); put("maxLength", 240) }
+                }
+            }
+        }
+        return QvacResponseFormat.JsonSchema("argument_cat_${shape.name.lowercase()}", schema, strict = true)
+    }
+
+    override suspend fun complete(system: String, history: List<Line>, shape: OutputShape): String = lock.withLock {
+        val id = withTimeout(15 * 60_000L) { model(Models.QWEN3_5_0_8B_MULTIMODAL_Q4_K_M, llmConfig) }
         withTimeout(90_000L) {
             val run = client().completion.run(
                 modelId = id,
                 history = listOf(QvacMessage.system(system)) + history.map { QvacMessage(it.role, it.text) },
                 options = QvacCompletionOptions(
-                    generation = QvacGenerationOptions(predict = 256, reasoningBudget = 0, temperature = if (json) 0.2 else 0.7),
-                    responseFormat = if (json) QvacResponseFormat.JsonValue else QvacResponseFormat.Text,
+                    generation = QvacGenerationOptions(
+                        predict = if (shape == OutputShape.TEXT) 96 else 160, reasoningBudget = 0,
+                        temperature = if (shape == OutputShape.TEXT) 0.7 else 0.2, repeatPenalty = 1.1,
+                    ),
+                    responseFormat = responseFormat(shape),
                     kvCache = QvacKvCache.Enabled(false),
                 ),
             )

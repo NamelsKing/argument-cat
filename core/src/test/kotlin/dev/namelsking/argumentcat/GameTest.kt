@@ -11,8 +11,9 @@ class GameTest {
         var calls = 0
         var fail = false
         var wait: CompletableDeferred<Unit>? = null
-        override suspend fun prepare(status: (String) -> Unit) { status("Ready") }
-        override suspend fun complete(system: String, history: List<Line>, json: Boolean): String {
+        var progress: ((String) -> Unit)? = null
+        override suspend fun prepare(status: (String) -> Unit) { progress = status; status("Ready") }
+        override suspend fun complete(system: String, history: List<Line>, shape: OutputShape): String {
             calls++
             wait?.await()
             if (fail) error("Offline error")
@@ -67,11 +68,27 @@ class GameTest {
         assertEquals("One. Two!", Rules.shortReply("One. Two! Three?"))
         assertFails { Rules.shortReply("   ") }
     }
+    @Test fun `generated setup cannot concede before the first player turn`() {
+        val scenario = Scenarios.all.first()
+        val setup = Rules.setup("{\"opening\":\"I accept this as our spaceship already.\",\"concern\":\"A cushion\"}", scenario)
+        assertEquals(scenario.stance, setup.opening)
+        assertEquals("A cushion", setup.concern)
+    }
+    @Test fun `speech loading cannot overwrite ready or finished game status`() = runTest {
+        val engine = Fake(); val game = GameStore(backgroundScope, engine)
+        game.start(); runCurrent()
+        engine.progress!!("Downloading speech 100%")
+        assertEquals("Your move", game.state.value.status)
+        game.send("Please"); runCurrent(); game.judge(); runCurrent()
+        val resultStatus = game.state.value.status
+        engine.progress!!("Downloading speech 100%")
+        assertEquals(resultStatus, game.state.value.status)
+    }
     @Test fun `invalid verdict is repaired only once`() = runTest {
         var judges = 0
         val engine = object : CatEngine {
             override suspend fun prepare(status: (String) -> Unit) {}
-            override suspend fun complete(system: String, history: List<Line>, json: Boolean): String {
+            override suspend fun complete(system: String, history: List<Line>, shape: OutputShape): String {
                 if (system.startsWith("You are an impartial referee")) { judges++; return "broken" }
                 return "No."
             }
