@@ -19,13 +19,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val input = MutableStateFlow("")
     val store = GameStore(viewModelScope, engine, ::speak)
 
-    private fun stopVoice() {
+    private fun stopVoice(): Job? {
+        val previous = voiceJob
         voiceEpoch++
         audio.stopRecording()
         audio.stopPlayback()
         voiceJob?.cancel()
         voiceJob = null
         mutableVoice.value = "idle"
+        return previous
     }
     fun toggleMute() { muted.value = !muted.value; if (muted.value && voice.value != "recording" && voice.value != "transcribing") stopVoice() }
     fun send() {
@@ -46,12 +48,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun record() {
         if (store.state.value.phase != Phase.INPUT || voice.value in listOf("recording", "transcribing")) return
-        stopVoice()
+        val previous = stopVoice()
         val id = voiceEpoch
         mutableVoice.value = "recording"
         voiceJob = viewModelScope.launch {
             var file: java.io.File? = null
             try {
+                previous?.join()
+                if (id != voiceEpoch || voice.value != "recording") return@launch
                 file = audio.record { if (id == voiceEpoch) mutableVoice.value = "transcribing" }
                 if (id != voiceEpoch) return@launch
                 mutableVoice.value = "transcribing"
@@ -70,11 +74,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun speak(text: String) {
         if (muted.value) return
-        stopVoice()
+        val previous = stopVoice()
         val id = voiceEpoch
         mutableVoice.value = "synthesizing"
         voiceJob = viewModelScope.launch {
             try {
+                previous?.join()
                 val pcm = engine.synthesize(text)
                 if (id != voiceEpoch || muted.value) return@launch
                 mutableVoice.value = "speaking"
