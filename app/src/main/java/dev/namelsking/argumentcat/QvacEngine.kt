@@ -15,31 +15,34 @@ import java.io.File
 class QvacEngine(private val context: Context) : CatEngine {
     private val lock = Mutex()
     private var client: QvacClient? = null
-    private var activeModel: Pair<String, String>? = null
+    private val loadedModels = linkedMapOf<String, String>()
+    private val chatModel = Models.QWEN3_5_2B_MULTIMODAL_Q4_K_M
     var status: (String) -> Unit = {}
 
     private suspend fun client(): QvacClient = client ?: QvacClient(
         AndroidServiceTransport.connect(context.applicationContext),
     ).also { client = it }
 
-    private suspend fun model(model: ModelConstant, config: JsonObject): String {
-        activeModel?.takeIf { it.first == model.name }?.let { return it.second }
+    private suspend fun model(model: ModelConstant, config: JsonObject, progress: (String) -> Unit = status): String {
+        loadedModels[model.name]?.let { return it }
         val sdk = client()
-        activeModel?.let { sdk.models.unload(it.second, clearStorage = false) }
-        activeModel = null
-        status("Loading ${model.name}…")
+        // Release the previous runtime before switching chat/speech on mobile.
+        for ((_, id) in loadedModels) sdk.models.unload(id, clearStorage = false)
+        loadedModels.clear()
+        val label = if (model.name == chatModel.name) "chat model" else "voice model"
+        progress("Loading $label…")
         sdk.models.loadWithProgress(
             source = model.src, modelType = model.engine, modelName = model.name, modelConfig = config,
         ).collect { event ->
             when (event) {
-                is QvacProgressEvent.Progress -> status("Model download ${event.value.percentage.toInt()}%")
+                is QvacProgressEvent.Progress -> progress("Downloading $label: ${event.value.percentage.toInt()}%")
                 is QvacProgressEvent.Result -> {
                     check(event.value.success) { event.value.error ?: "Model load failed" }
-                    activeModel = model.name to requireNotNull(event.value.modelId)
+                    loadedModels[model.name] = requireNotNull(event.value.modelId)
                 }
             }
         }
-        return requireNotNull(activeModel?.second) { "No model returned" }
+        return requireNotNull(loadedModels[model.name]) { "No model returned" }
     }
 
     private val llmConfig get() = buildJsonObject {
@@ -47,59 +50,33 @@ class QvacEngine(private val context: Context) : CatEngine {
     }
     override suspend fun prepare(status: (String) -> Unit) = lock.withLock {
         this.status = status
-        withTimeout(15 * 60_000L) { model(Models.QWEN3_5_0_8B_MULTIMODAL_Q4_K_M, llmConfig) }
+        modelDeadline(30 * 60_000L, "Model loading") { model(chatModel, llmConfig) }
         Unit
     }
 
-    private fun responseFormat(shape: OutputShape): QvacResponseFormat {
-        if (shape == OutputShape.Text) return QvacResponseFormat.Text
-        val schema = when (shape) {
-            OutputShape.Setup -> buildJsonObject {
-                put("type", "object"); put("additionalProperties", false)
-                putJsonArray("required") { add("concern") }
-                putJsonObject("properties") {
-                    putJsonObject("concern") { put("type", "string"); put("minLength", 1); put("maxLength", 240) }
-                }
+    private fun responseFormat() = QvacResponseFormat.JsonSchema(
+        "argument_cat_reply", buildJsonObject {
+            put("type", "object"); put("additionalProperties", false)
+            putJsonArray("required") { add("conceded"); add("reply") }
+            putJsonObject("properties") {
+                putJsonObject("conceded") { put("type", "boolean") }
+                putJsonObject("reply") { put("type", "string"); put("minLength", 1); put("maxLength", 180) }
             }
-            is OutputShape.Verdict -> buildJsonObject {
-                require(shape.catTurns.isNotEmpty()) { "No cat replies to judge" }
-                putJsonArray("anyOf") {
-                    for (winner in listOf("cat", "player")) add(buildJsonObject {
-                        put("type", "object"); put("additionalProperties", false)
-                        putJsonArray("required") { add("winner"); add("evidenceTurn"); add("reason") }
-                        putJsonObject("properties") {
-                            putJsonObject("winner") { put("type", "string"); putJsonArray("enum") { add(winner) } }
-                            putJsonObject("evidenceTurn") {
-                                if (winner == "cat") put("type", "null")
-                                else {
-                                    put("type", "integer")
-                                    putJsonArray("enum") { shape.catTurns.distinct().forEach { add(it) } }
-                                }
-                            }
-                            putJsonObject("reason") { put("type", "string"); put("minLength", 1); put("maxLength", 180) }
-                        }
-                    })
-                }
-            }
-            OutputShape.Text -> error("Text has no JSON schema")
-        }
-        return QvacResponseFormat.JsonSchema(
-            if (shape == OutputShape.Setup) "argument_cat_setup" else "argument_cat_verdict", schema, strict = true,
-        )
-    }
+        }, strict = true,
+    )
 
-    override suspend fun complete(system: String, history: List<Line>, shape: OutputShape): String = lock.withLock {
-        val id = withTimeout(15 * 60_000L) { model(Models.QWEN3_5_0_8B_MULTIMODAL_Q4_K_M, llmConfig) }
-        withTimeout(90_000L) {
+    override suspend fun complete(system: String, history: List<Line>): String = lock.withLock {
+        val id = modelDeadline(30 * 60_000L, "Model loading") { model(chatModel, llmConfig) }
+        modelDeadline(90_000L, "The cat's reply") {
             val run = client().completion.run(
                 modelId = id,
                 history = listOf(QvacMessage.system(system)) + history.map { QvacMessage(it.role, it.text) },
                 options = QvacCompletionOptions(
                     generation = QvacGenerationOptions(
-                        predict = if (shape == OutputShape.Text) 96 else 160, reasoningBudget = 0,
-                        temperature = if (shape == OutputShape.Text) 0.7 else 0.2, repeatPenalty = 1.1,
+                        predict = 96, reasoningBudget = 0,
+                        temperature = 0.4, repeatPenalty = 1.1,
                     ),
-                    responseFormat = responseFormat(shape),
+                    responseFormat = responseFormat(),
                     kvCache = QvacKvCache.Enabled(false),
                 ),
             )
@@ -118,23 +95,27 @@ class QvacEngine(private val context: Context) : CatEngine {
             put("n_threads", 4); put("translate", false); put("no_timestamps", true)
             putJsonObject("contextParams") { put("use_gpu", false); put("flash_attn", false) }
         }
-        val id = withTimeout(15 * 60_000L) { model(Models.WHISPER_TINY_Q8_0, config) }
-        withTimeout(90_000L) { client().speech.transcribe(id, QvacDataInput.FilePath(audio.absolutePath)).text.trim().take(400) }
+        val id = modelDeadline(30 * 60_000L, "Model loading") { model(Models.WHISPER_TINY_Q8_0, config) }
+        modelDeadline(90_000L, "Transcription") { client().speech.transcribe(id, QvacDataInput.FilePath(audio.absolutePath)).text.trim().take(400) }
     }
 
-    suspend fun synthesize(text: String): ShortArray = lock.withLock {
-        val config = buildJsonObject { put("ttsEngine", "supertonic"); put("language", "en") }
-        val id = withTimeout(15 * 60_000L) { model(Models.TTS_MULTILINGUAL_SUPERTONIC3_Q4_0, config) }
+    suspend fun synthesize(text: String, progress: (String) -> Unit = {}): ShortArray = lock.withLock {
+        val config = buildJsonObject {
+            put("ttsEngine", "supertonic"); put("language", "en"); put("voice", "M1")
+            put("ttsNumInferenceSteps", 5); put("outputSampleRate", 44_100)
+        }
+        val id = modelDeadline(30 * 60_000L, "Model loading") { model(Models.TTS_MULTILINGUAL_SUPERTONIC3_Q4_0, config, progress) }
         // This specific public Supertonic3 model uses signed PCM16 at 44.1 kHz.
-        withTimeout(90_000L) {
-            client().speech.synthesize(id, text).samples.map {
-                it.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-            }.toShortArray().also { check(it.isNotEmpty()) { "No speech returned" } }
+        modelDeadline(90_000L, "Voice generation") {
+            val samples = client().speech.synthesize(id, text).samples
+            SpeechPcm.normalized(samples).also {
+                android.util.Log.d("ArgumentCatAudio", "samples=${it.size} sourcePeak=${samples.maxOf { v -> kotlin.math.abs(v) }} playbackPeak=${it.maxOf { v -> kotlin.math.abs(v.toInt()) }}")
+            }
         }
     }
 
     suspend fun close() = lock.withLock {
-        activeModel = null
+        loadedModels.clear()
         val old = client
         client = null
         old?.close()

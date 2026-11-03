@@ -62,12 +62,13 @@ class VoiceAudio(private val context: Context) {
     suspend fun play(samples: ShortArray) = withContext(Dispatchers.IO) {
         val format = AudioFormat.Builder().setSampleRate(44_100).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()
         val track = AudioTrack.Builder()
-            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             .setAudioFormat(format).setTransferMode(AudioTrack.MODE_STREAM)
             .setBufferSizeInBytes(maxOf(8192, AudioTrack.getMinBufferSize(44_100, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT))).build()
         if (track.state != AudioTrack.STATE_INITIALIZED) { track.release(); error("Audio output unavailable") }
         playback = track
         try {
+            track.setVolume(1f)
             track.play()
             var written = 0
             while (written < samples.size) {

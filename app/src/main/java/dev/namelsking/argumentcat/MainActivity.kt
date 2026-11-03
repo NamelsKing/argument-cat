@@ -56,13 +56,14 @@ class MainActivity : ComponentActivity() {
 private fun GameScreen(vm: GameViewModel, requestMicrophone: () -> Unit) {
     val game by vm.store.state.collectAsState()
     val voice by vm.voice.collectAsState()
+    val voiceDetail by vm.voiceDetail.collectAsState()
     val muted by vm.muted.collectAsState()
     val input by vm.input.collectAsState()
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val list = rememberLazyListState()
-    val busy = game.phase in listOf(Phase.PREPARING, Phase.THINKING, Phase.JUDGING)
+    val busy = game.phase in listOf(Phase.PREPARING, Phase.THINKING)
     val listening = voice == "recording"
     LaunchedEffect(game.lines.size) { if (game.lines.isNotEmpty()) list.animateScrollToItem(game.lines.lastIndex) }
 
@@ -71,24 +72,24 @@ private fun GameScreen(vm: GameViewModel, requestMicrophone: () -> Unit) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
                     Text("ARGUMENT CAT", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-                    Text("Local AI. Questionable opinions.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    if (!keyboardVisible) Text("Local AI. Questionable opinions.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 }
                 TextButton(onClick = vm::toggleMute) { Text(if (muted) "Voice off" else "Voice on") }
             }
-            CatFace(
+            if (!keyboardVisible) CatFace(
                 mood = when {
-                    game.verdict?.winner == "player" -> "annoyed"
-                    game.verdict?.winner == "cat" -> "happy"
                     listening -> "listening"
                     voice == "speaking" -> "speaking"
+                    game.verdict?.winner == "player" -> "annoyed"
+                    game.verdict?.winner == "cat" -> "happy"
                     busy || voice in listOf("transcribing", "synthesizing") -> "thinking"
                     else -> "neutral"
-                }, Modifier.size(if (keyboardVisible) 70.dp else 122.dp),
+                }, Modifier.size(122.dp),
             )
             if (game.phase == Phase.READY) {
                 Text("Change my mind.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
-                Text("Pick an argument", color = MaterialTheme.colorScheme.outline)
+                Text("Pick a claim", color = MaterialTheme.colorScheme.outline)
                 Scenarios.all.forEach { scenario ->
                     FilterChip(
                         selected = game.scenario == scenario,
@@ -102,12 +103,13 @@ private fun GameScreen(vm: GameViewModel, requestMicrophone: () -> Unit) {
                         FilterChip(selected = game.limit == turns, onClick = { vm.store.configure(game.scenario, turns) }, label = { Text("$turns turns") })
                     }
                 }
-                Text("Convince the cat: ${game.scenario.goal}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 12.dp))
+                Text("Your goal: ${game.scenario.goal}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 12.dp))
                 Button(onClick = vm.store::start, modifier = Modifier.fillMaxWidth()) { Text("Start argument") }
-                Text("First use downloads local models. Voice adds speech models. Fictional arguments; the verdict isn't a fact check.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(top = 12.dp))
+                Text("Win by changing the cat's mind. First use downloads the models. This is a game, not a fact check.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(top = 12.dp))
             } else {
                 Text(game.scenario.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text("${game.completed} of ${game.limit} turns · ${game.status}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                if (voice != "idle") Text(when (voice) { "recording" -> "Listening… tap Stop when done (20s max)"; "transcribing" -> "Transcribing on device…"; else -> voiceDetail }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(6.dp))
                 Spacer(Modifier.height(10.dp))
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     itemsIndexed(game.lines) { _, line ->
@@ -124,12 +126,10 @@ private fun GameScreen(vm: GameViewModel, requestMicrophone: () -> Unit) {
                         Column(Modifier.padding(14.dp)) {
                             Text(if (game.verdict?.winner == "player") "Fine. You win." else if (game.verdict != null) "The cat wins. Obviously." else "No verdict", style = MaterialTheme.typography.titleMedium)
                             game.verdict?.let { Text(it.reason) }
-                            Text("The cat cared about: ${game.setup?.concern.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                         }
                     }
                     Button(onClick = vm::restart, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) { Text("Another argument") }
                 } else if (!busy) {
-                    if (voice != "idle") Text(when (voice) { "recording" -> "Listening… tap Stop when done (20s max)"; "transcribing" -> "Transcribing on device…"; "speaking" -> "The cat is speaking…"; else -> "Preparing the cat's voice…" }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(6.dp))
                     OutlinedTextField(
                         value = input, onValueChange = { if (it.length <= 400) vm.input.value = it },
                         modifier = Modifier.fillMaxWidth(), placeholder = { Text("Make your case…") }, maxLines = 3,
@@ -138,12 +138,20 @@ private fun GameScreen(vm: GameViewModel, requestMicrophone: () -> Unit) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { if (listening) vm.finishRecording() else requestMicrophone() }, enabled = voice != "transcribing") { Text(if (listening) "Stop" else "Speak") }
                         Button(onClick = { keyboard?.hide(); focus.clearFocus(); vm.send() }, enabled = input.isNotBlank() && voice !in listOf("recording", "transcribing"), modifier = Modifier.weight(1f)) { Text("Send") }
-                        TextButton(onClick = vm::judge, enabled = game.completed > 0 && voice !in listOf("recording", "transcribing")) { Text("Verdict") }
+                        TextButton(onClick = vm::judge, enabled = game.completed > 0 && voice !in listOf("recording", "transcribing")) { Text("End round") }
                     }
-                    TextButton(onClick = vm::restart) { Text("Start over") }
+                    Row {
+                        TextButton(onClick = vm::restart) { Text("Start over") }
+                        TextButton(onClick = vm::hearReply, enabled = voice !in listOf("recording", "transcribing")) {
+                            Text(if (voice in listOf("synthesizing", "speaking")) "Stop voice" else "Hear reply")
+                        }
+                    }
                 } else {
                     LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp))
                     TextButton(onClick = vm::cancel) { Text("Cancel") }
+                }
+                if (game.phase == Phase.FINISHED) TextButton(onClick = vm::hearReply) {
+                    Text(if (voice in listOf("synthesizing", "speaking")) "Stop voice" else "Hear reply")
                 }
             }
             game.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp)) }
