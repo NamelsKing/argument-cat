@@ -111,13 +111,14 @@ internal class CatRenderer : GLSurfaceView.Renderer {
 
             // Layered eyeball, iris, pupil and highlights all follow the head rig.
             val x=side*.30f; val gaze=sin(t*.48f)*.018f+pondering*.035f
-            ball(head,x,.025f,.505f,.240f,.245f*open,.105f,floatArrayOf(.57f,.35f,.21f),16f)
-            ball(head,x,.025f,.532f,.225f,.230f*open,.095f,floatArrayOf(.99f,.96f,.85f),65f)
-            ball(head,x+gaze,.022f+pondering*.025f,.610f,.154f,.198f*open,.043f,iris,95f)
-            ball(head,x+gaze,.022f+pondering*.025f,.646f,.075f+listen*.012f,.170f*open,.016f,ink,100f)
+            val eyeLift=.045f
+            ball(head,x,.025f+eyeLift,.505f,.240f,.245f*open,.105f,floatArrayOf(.57f,.35f,.21f),16f)
+            ball(head,x,.025f+eyeLift,.532f,.225f,.230f*open,.095f,floatArrayOf(.99f,.96f,.85f),65f)
+            ball(head,x+gaze,.022f+eyeLift+pondering*.025f,.610f,.154f,.198f*open,.043f,iris,95f)
+            ball(head,x+gaze,.022f+eyeLift+pondering*.025f,.646f,.075f+listen*.012f,.170f*open,.016f,ink,100f)
             if(open>.12f) {
-                ball(head,x-.042f+gaze,.096f,.665f,.042f,.047f*open,.013f,floatArrayOf(1f,.99f,.94f),120f)
-                ball(head,x+.045f+gaze,-.025f,.665f,.016f,.020f*open,.008f,floatArrayOf(.75f,.92f,.87f),100f)
+                ball(head,x-.042f+gaze,.096f+eyeLift,.665f,.042f,.047f*open,.013f,floatArrayOf(1f,.99f,.94f),120f)
+                ball(head,x+.045f+gaze,-.025f+eyeLift,.665f,.016f,.020f*open,.008f,floatArrayOf(.75f,.92f,.87f),100f)
             }
         }
         draw(furMarks,head,V(0f,0f,0f),V(1f,1f,1f),floatArrayOf(.48f,.26f,.13f))

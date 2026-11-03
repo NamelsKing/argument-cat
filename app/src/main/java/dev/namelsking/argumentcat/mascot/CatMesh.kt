@@ -109,8 +109,8 @@ internal class CatMesh(vertices: FloatArray, opened: FloatArray? = null) {
         fun lowerMuzzle(): CatMesh {
             fun shape(jaw: Float) = surface(48, 14) { s, v ->
                 val u=s*2f-1f; val edge=lowerLip(u,jaw); val envelope=(1f-abs(u)).coerceAtLeast(0f)
-                val x=edge.x*(1f-v*.55f)
-                val y=edge.y-v*.075f*envelope
+                val x=edge.x*(1f-v*.50f)
+                val y=edge.y-v*.10f*envelope
                 val base=headDepth(x,y)
                 val blend=(1f-v)*(1f-v)*(1f+2f*v)
                 val depth=(edge.z-headDepth(edge.x,edge.y))*blend
