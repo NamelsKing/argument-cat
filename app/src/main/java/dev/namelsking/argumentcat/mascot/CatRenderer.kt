@@ -25,17 +25,18 @@ internal class CatRenderer : GLSurfaceView.Renderer {
     private lateinit var lowerMuzzle: CatMesh
     private lateinit var mouth: CatMesh
     private lateinit var nose: CatMesh
-    private lateinit var eyeShape: CatMesh
+    private lateinit var furMarks: CatMesh
     private val projection = FloatArray(16); private val view = FloatArray(16); private val vp = FloatArray(16)
     private val model = FloatArray(16); private val inverse = FloatArray(16); private val normals = FloatArray(16)
     private val root = FloatArray(16); private val head = FloatArray(16)
     private val headInverse = FloatArray(16)
-    private val fur = floatArrayOf(.74f,.48f,.27f)
+    private val fur = floatArrayOf(.94f,.59f,.31f)
+    private val lightFur = floatArrayOf(1f,.70f,.43f)
     private val cream = floatArrayOf(.99f,.90f,.77f)
     private val stripe = floatArrayOf(.39f,.20f,.105f)
     private val ink = floatArrayOf(.07f,.075f,.075f)
-    private val pink = floatArrayOf(.62f,.34f,.32f)
-    private val iris = floatArrayOf(.36f,.48f,.24f)
+    private val pink = floatArrayOf(.88f,.46f,.50f)
+    private val iris = floatArrayOf(.24f,.53f,.43f)
     private val mouthColor = floatArrayOf(.075f,.035f,.032f)
     private var angry = 0f; private var proud = 0f; private var think = 0f; private var listen = 0f
     private var jaw = 0f
@@ -53,7 +54,7 @@ internal class CatRenderer : GLSurfaceView.Renderer {
         irisUniform = glGetUniformLocation(program,"uIris"); headInverseUniform = glGetUniformLocation(program,"uHeadInverse")
         sphere = CatMesh.sphere(); cylinder = CatMesh.cylinder(); ear = CatMesh.ear()
         skull = CatMesh.head(); upperMuzzle = CatMesh.upperMuzzle(); lowerMuzzle = CatMesh.lowerMuzzle()
-        mouth = CatMesh.mouth(); nose = CatMesh.nose(); eyeShape = CatMesh.eye()
+        mouth = CatMesh.mouth(); nose = CatMesh.nose(); furMarks = CatMesh.furMarks()
         glEnable(GL_DEPTH_TEST)
         glClearColor(16/255f,20/255f,28/255f,1f)
         Matrix.setLookAtM(view,0,0f,.35f,5.8f,0f,.22f,0f,0f,1f,0f)
@@ -97,38 +98,40 @@ internal class CatRenderer : GLSurfaceView.Renderer {
         Matrix.invertM(headInverse,0,head,0)
         glUniformMatrix4fv(headInverseUniform,1,false,headInverse,0)
         draw(skull,head,V(0f,0f,0f),V(1f,1f,1f),fur)
+        ball(head,-.53f,-.17f,.12f,.31f,.30f,.39f,lightFur)
+        ball(head,.53f,-.17f,.12f,.31f,.30f,.39f,lightFur)
         for(side in listOf(-1f,1f)) {
             val earBase=FloatArray(16);System.arraycopy(head,0,earBase,0,16)
             Matrix.translateM(earBase,0,side*.53f,.52f,-.02f)
             val twitch=exp(-(((t+if(side>0)1.7f else 0f)%8.2f)-.25f).pow(2)/.012f)*9f
             Matrix.rotateM(earBase,0,side*(angry*19f-listen*8f+twitch),0f,0f,1f)
             Matrix.rotateM(earBase,0,angry*24f-listen*12f,1f,0f,0f)
-            draw(ear,earBase,V(0f,0f,0f),V(-side*.82f,.94f,1f),fur)
-            draw(ear,earBase,V(0f,.025f,.13f),V(-side*.52f,.64f,.40f),pink,14f)
+            draw(ear,earBase,V(0f,0f,0f),V(-side*.90f,.85f,1f),fur)
+            draw(ear,earBase,V(0f,.025f,.13f),V(-side*.58f,.58f,.40f),pink,14f)
 
             // Layered eyeball, iris, pupil and highlights all follow the head rig.
-            val x=side*.31f; val gaze=sin(t*.48f)*.012f+pondering*.023f
-            eyeball(head,x,.095f,.505f,.225f,.184f*open,.105f,fur)
-            eyeball(head,x,.095f,.534f,.207f,.166f*open,.095f,floatArrayOf(.25f,.19f,.13f),28f)
-            eyeball(head,x,.095f,.548f,.197f,.153f*open,.092f,floatArrayOf(.79f,.78f,.63f),65f)
-            ball(head,x+gaze,.092f+pondering*.016f,.616f,.170f,.138f*open,.043f,iris,95f)
-            ball(head,x+gaze,.092f+pondering*.016f,.652f,.034f+listen*.016f,.120f*open,.015f,ink,90f)
+            val x=side*.30f; val gaze=sin(t*.48f)*.018f+pondering*.035f
+            ball(head,x,.025f,.505f,.240f,.245f*open,.105f,floatArrayOf(.57f,.35f,.21f),16f)
+            ball(head,x,.025f,.532f,.225f,.230f*open,.095f,floatArrayOf(.99f,.96f,.85f),65f)
+            ball(head,x+gaze,.022f+pondering*.025f,.610f,.154f,.198f*open,.043f,iris,95f)
+            ball(head,x+gaze,.022f+pondering*.025f,.646f,.075f+listen*.012f,.170f*open,.016f,ink,100f)
             if(open>.12f) {
-                ball(head,x-.042f+gaze,.150f,.670f,.020f,.027f*open,.010f,floatArrayOf(1f,.99f,.94f),120f)
-                ball(head,x+.039f+gaze,.059f,.670f,.008f,.010f*open,.006f,floatArrayOf(.75f,.92f,.87f),100f)
+                ball(head,x-.042f+gaze,.096f,.665f,.042f,.047f*open,.013f,floatArrayOf(1f,.99f,.94f),120f)
+                ball(head,x+.045f+gaze,-.025f,.665f,.016f,.020f*open,.008f,floatArrayOf(.75f,.92f,.87f),100f)
             }
         }
+        draw(furMarks,head,V(0f,0f,0f),V(1f,1f,1f),floatArrayOf(.48f,.26f,.13f))
         draw(mouth,head,V(0f,0f,0f),V(1f,1f,1f),mouthColor,8f)
         draw(upperMuzzle,head,V(0f,0f,0f),V(1f,1f,1f),fur)
         draw(lowerMuzzle,head,V(0f,0f,0f),V(1f,1f,1f),fur)
         for(side in listOf(-1f,1f)) {
             for(i in 0..2) {
-                val p=CatMesh.muzzlePoint(side*(.16f+i*.048f),-.14f-(i%2)*.045f)
+                val p=CatMesh.muzzlePoint(side*(.11f+i*.037f),-.14f-(i%2)*.045f)
                 ball(head,p.x,p.y,p.z+.002f,.007f,.006f,.004f,stripe)
             }
             // Slightly curved whiskers, with a subtle twitch during listening.
             for(i in -1..1) {
-                val p=CatMesh.muzzlePoint(side*.25f,-.18f+i*.036f)
+                val p=CatMesh.muzzlePoint(side*.20f,-.18f+i*.036f)
                 val start=V(p.x,p.y,p.z+.003f)
                 val end=V(side*(.85f+abs(i)*.04f),-.18f+i*.13f+sin(t*2+i)*listen*.018f,.51f)
                 val mid=V(side*.55f,-.18f+i*.085f,.64f)
@@ -147,9 +150,6 @@ internal class CatRenderer : GLSurfaceView.Renderer {
     private fun ball(base: FloatArray,x:Float,y:Float,z:Float,sx:Float,sy:Float,sz:Float,color:FloatArray,gloss:Float=12f) =
         draw(sphere,base,V(x,y,z),V(sx,sy,sz),color,gloss)
 
-    private fun eyeball(base: FloatArray,x:Float,y:Float,z:Float,sx:Float,sy:Float,sz:Float,color:FloatArray,gloss:Float=12f) =
-        draw(eyeShape,base,V(x,y,z),V(sx,sy,sz),color,gloss)
-
     private fun draw(mesh: CatMesh,base:FloatArray,p:V,s:V,color:FloatArray,gloss:Float=12f,rotation:Float=0f,axis:V=V(0f,1f,0f)) {
         System.arraycopy(base,0,model,0,16)
         Matrix.translateM(model,0,p.x,p.y,p.z)
@@ -159,7 +159,7 @@ internal class CatRenderer : GLSurfaceView.Renderer {
         glUniformMatrix4fv(modelUniform,1,false,model,0);glUniformMatrix4fv(normalUniform,1,false,normals,0)
         glUniform3fv(colorUniform,1,color,0);glUniform1f(glossUniform,gloss)
         glUniform1f(furUniform,if(color===fur)1f else 0f)
-        glUniform1f(irisUniform,if(color===iris)1f else 0f)
+        glUniform1f(irisUniform,0f)
         glUniform1f(morphUniform,if(mesh.morphing)jaw else 0f)
         mesh.draw(position,normal,openPosition,openNormal)
     }
@@ -215,14 +215,10 @@ internal class CatRenderer : GLSurfaceView.Renderer {
                     vec3 p=vHeadPosition;
                     float fine=noise(p*vec3(150.0,650.0,150.0));
                     float mottling=noise(p*22.0);
-                    float forehead=pow(max(cos(p.x*35.0+sin(p.y*12.0)*1.3+noise(p*9.0)*1.5),0.0),7.0)*smoothstep(0.18,0.45,p.y);
-                    float cheek=pow(max(cos(p.y*40.0+abs(p.x)*5.0),0.0),6.0)*smoothstep(0.48,0.70,abs(p.x))*(1.0-smoothstep(0.10,0.30,p.y));
-                    float marks=(forehead+cheek)*smoothstep(0.16,0.42,p.z)*(0.55+0.45*mottling);
-                    base*=1.0-0.42*clamp(marks,0.0,1.0);
-                    vec2 patchPosition=vec2(p.x/0.49,(p.y+0.26)/0.34);
+                    vec2 patchPosition=vec2(p.x/0.32,(p.y+0.22)/0.23);
                     float patch=dot(patchPosition,patchPosition);
                     float cream=(1.0-smoothstep(0.72,1.05,patch))*smoothstep(0.22,0.48,p.z);
-                    base=mix(base,vec3(0.88,0.84,0.73),cream);
+                    base=mix(base,vec3(0.99,0.90,0.77),cream);
                     base*=0.975+0.035*fine+0.025*mottling;
                 }
                 if(uIris>0.5){
