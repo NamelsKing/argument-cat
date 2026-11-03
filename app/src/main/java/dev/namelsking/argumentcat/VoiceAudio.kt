@@ -59,7 +59,7 @@ class VoiceAudio(private val context: Context) {
     fun stopRecording() { recording = false; runCatching { recorder?.stop() } }
     fun stopPlayback() { runCatching { playback?.pause(); playback?.flush() } }
 
-    suspend fun play(samples: ShortArray) = withContext(Dispatchers.IO) {
+    suspend fun play(samples: ShortArray, onLevel: (Float) -> Unit = {}) = withContext(Dispatchers.IO) {
         val format = AudioFormat.Builder().setSampleRate(44_100).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()
         val track = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
@@ -67,9 +67,21 @@ class VoiceAudio(private val context: Context) {
             .setBufferSizeInBytes(maxOf(8192, AudioTrack.getMinBufferSize(44_100, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT))).build()
         if (track.state != AudioTrack.STATE_INITIALIZED) { track.release(); error("Audio output unavailable") }
         playback = track
+        var meter: Job? = null
         try {
             track.setVolume(1f)
             track.play()
+            meter = launch {
+                while (isActive) {
+                    val start = track.playbackHeadPosition.coerceIn(0, samples.size)
+                    val end = (start + 1323).coerceAtMost(samples.size)
+                    var energy = 0.0
+                    for (i in start until end) { val s = samples[i] / 32768.0; energy += s * s }
+                    val rms = if (end > start) kotlin.math.sqrt(energy / (end - start)).toFloat() else 0f
+                    onLevel((rms * 5f).coerceIn(0f, 1f))
+                    delay(33)
+                }
+            }
             var written = 0
             while (written < samples.size) {
                 currentCoroutineContext().ensureActive()
@@ -79,6 +91,8 @@ class VoiceAudio(private val context: Context) {
             }
             while (track.playbackHeadPosition < samples.size) { delay(25); currentCoroutineContext().ensureActive() }
         } finally {
+            withContext(NonCancellable) { meter?.cancelAndJoin() }
+            onLevel(0f)
             runCatching { track.stop() }
             track.release()
             if (playback === track) playback = null

@@ -16,6 +16,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val mutableVoice = MutableStateFlow("idle")
     val voice = mutableVoice.asStateFlow()
     val voiceDetail = MutableStateFlow("")
+    val speechLevel = MutableStateFlow(0f)
     private var cachedVoice: Pair<String, ShortArray>? = null
     val muted = MutableStateFlow(false)
     val input = MutableStateFlow("")
@@ -30,6 +31,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         voiceJob = null
         mutableVoice.value = "idle"
         voiceDetail.value = ""
+        speechLevel.value = 0f
         return previous
     }
     fun toggleMute() { muted.value = !muted.value; if (muted.value && voice.value != "recording" && voice.value != "transcribing") stopVoice() }
@@ -100,10 +102,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 store.notice(null)
                 mutableVoice.value = "speaking"
                 voiceDetail.value = "The cat is speaking…"
-                audio.play(pcm)
+                audio.play(pcm) { if (id == voiceEpoch) speechLevel.value = it }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (id == voiceEpoch) store.notice("Voice unavailable; the text reply is still here. ${e.message.orEmpty()}") }
-            finally { if (id == voiceEpoch) { mutableVoice.value = "idle"; voiceDetail.value = "" } }
+            finally { if (id == voiceEpoch) { mutableVoice.value = "idle"; voiceDetail.value = ""; speechLevel.value = 0f } }
         }
     }
     override fun onCleared() {

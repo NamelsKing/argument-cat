@@ -6,8 +6,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,15 +19,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.namelsking.argumentcat.mascot.CatMascot
+import dev.namelsking.argumentcat.mascot.CatPose
 import androidx.lifecycle.ViewModelProvider
 
 class MainActivity : ComponentActivity() {
@@ -76,15 +70,16 @@ private fun GameScreen(vm: GameViewModel, requestMicrophone: () -> Unit) {
                 }
                 TextButton(onClick = vm::toggleMute) { Text(if (muted) "Voice off" else "Voice on") }
             }
-            if (!keyboardVisible) CatFace(
-                mood = when {
-                    listening -> "listening"
-                    voice == "speaking" -> "speaking"
-                    game.verdict?.winner == "player" -> "annoyed"
-                    game.verdict?.winner == "cat" -> "happy"
-                    busy || voice in listOf("transcribing", "synthesizing") -> "thinking"
-                    else -> "neutral"
-                }, Modifier.size(122.dp),
+            if (!keyboardVisible) GameCat(vm,
+                CatPose(
+                    emotion = when (game.verdict?.winner) { "player" -> "annoyed"; "cat" -> "happy"; else -> "neutral" },
+                    activity = when {
+                        listening -> "listening"
+                        voice == "speaking" -> "speaking"
+                        busy || voice in listOf("transcribing", "synthesizing") -> "thinking"
+                        else -> "idle"
+                    },
+                ), Modifier.size(width = 220.dp, height = if (game.phase == Phase.READY) 160.dp else 180.dp),
             )
             if (game.phase == Phase.READY) {
                 Text("Change my mind.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -160,29 +155,7 @@ private fun GameScreen(vm: GameViewModel, requestMicrophone: () -> Unit) {
 }
 
 @Composable
-private fun CatFace(mood: String, modifier: Modifier = Modifier) {
-    val motion = rememberInfiniteTransition(label = "cat")
-    val bob by motion.animateFloat(0f, 4f, infiniteRepeatable(tween(if (mood == "speaking") 180 else 1200), RepeatMode.Reverse), label = "bob")
-    val blink by motion.animateFloat(1f, .12f, infiniteRepeatable(keyframes { durationMillis = 4200; 1f at 0; 1f at 3850; .12f at 3970; 1f at 4100 }, RepeatMode.Restart), label = "blink")
-    Canvas(modifier.semantics { contentDescription = "A $mood cat" }) {
-        val scale = size.width / 120f
-        fun p(x: Float, y: Float) = Offset(x * scale, (y + bob) * scale)
-        val fur = if (mood == "annoyed") Color(0xFFEA957E) else Color(0xFFFFCC8D)
-        val ink = Color(0xFF252A35)
-        val ears = Path().apply { moveTo(p(20f, 53f).x, p(20f, 53f).y); lineTo(p(17f, 15f).x, p(17f, 15f).y); lineTo(p(48f, 34f).x, p(48f, 34f).y); close(); moveTo(p(72f, 34f).x, p(72f, 34f).y); lineTo(p(103f, 15f).x, p(103f, 15f).y); lineTo(p(100f, 53f).x, p(100f, 53f).y); close() }
-        drawPath(ears, fur)
-        drawCircle(fur, 44f * scale, p(60f, 64f))
-        for (x in listOf(43f, 77f)) {
-            if (mood == "happy") drawLine(ink, p(x - 5, 62f), p(x + 5, 62f), 3f * scale, StrokeCap.Round)
-            else drawOval(ink, p(x - 3, 61 - 6 * blink), androidx.compose.ui.geometry.Size(6f * scale, maxOf(2f, 12f * blink) * scale))
-            if (mood == "annoyed") drawLine(ink, p(x - 7, if (x < 60) 49f else 55f), p(x + 7, if (x < 60) 55f else 49f), 3f * scale, StrokeCap.Round)
-        }
-        drawCircle(ink, 3f * scale, p(60f, 73f))
-        if (mood == "speaking") drawCircle(ink, (3f + bob) * scale, p(60f, 84f))
-        else {
-            val mouth = Path().apply { moveTo(p(49f, 82f).x, p(49f, 82f).y); quadraticTo(p(60f, if (mood == "annoyed") 74f else 92f).x, p(60f, if (mood == "annoyed") 74f else 92f).y, p(71f, 82f).x, p(71f, 82f).y) }
-            drawPath(mouth, ink, style = Stroke(2.5f * scale))
-        }
-        for (side in listOf(-1, 1)) for (dy in listOf(-4f, 4f)) drawLine(ink.copy(alpha = .6f), p(60f + side * 27, 77f + dy), p(60f + side * 48, 75f + dy * 2), 1.5f * scale)
-    }
+private fun GameCat(vm: GameViewModel, pose: CatPose, modifier: Modifier) {
+    val level by vm.speechLevel.collectAsState()
+    CatMascot(pose.copy(speech = level), modifier)
 }
