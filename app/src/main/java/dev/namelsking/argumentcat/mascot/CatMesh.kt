@@ -6,29 +6,172 @@ import java.nio.ByteOrder
 import kotlin.math.*
 
 internal data class V(val x: Float, val y: Float, val z: Float) {
+    operator fun plus(v: V) = V(x + v.x, y + v.y, z + v.z)
     operator fun minus(v: V) = V(x - v.x, y - v.y, z - v.z)
+    operator fun times(s: Float) = V(x * s, y * s, z * s)
     fun cross(v: V) = V(y * v.z - z * v.y, z * v.x - x * v.z, x * v.y - y * v.x)
-    fun unit(): V { val n = sqrt(x*x + y*y + z*z).coerceAtLeast(.00001f); return V(x/n, y/n, z/n) }
+    fun unit(): V { val n = sqrt(x*x + y*y + z*z).coerceAtLeast(1e-12f); return V(x/n, y/n, z/n) }
 }
 
-internal class CatMesh(vertices: FloatArray) {
-    private val buffer: Int
+internal class CatMesh(vertices: FloatArray, opened: FloatArray? = null) {
+    private val buffer = upload(vertices)
+    private val openBuffer = opened?.also { require(it.size == vertices.size) }?.let(::upload)
+    val morphing get() = openBuffer != null
     private val count = vertices.size / 6
-    init {
+    private fun upload(vertices: FloatArray): Int {
         val bytes = ByteBuffer.allocateDirect(vertices.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
         bytes.put(vertices).position(0)
-        val ids = IntArray(1); glGenBuffers(1, ids, 0); buffer = ids[0]
-        glBindBuffer(GL_ARRAY_BUFFER, buffer)
+        val ids = IntArray(1); glGenBuffers(1, ids, 0)
+        glBindBuffer(GL_ARRAY_BUFFER, ids[0])
         glBufferData(GL_ARRAY_BUFFER, vertices.size * 4, bytes, GL_STATIC_DRAW)
+        return ids[0]
     }
-    fun draw(position: Int, normal: Int) {
+    fun draw(position: Int, normal: Int, openPosition: Int, openNormal: Int) {
         glBindBuffer(GL_ARRAY_BUFFER, buffer)
         glVertexAttribPointer(position, 3, GL_FLOAT, false, 24, 0)
         glVertexAttribPointer(normal, 3, GL_FLOAT, false, 24, 12)
+        if (openBuffer != null) {
+            glBindBuffer(GL_ARRAY_BUFFER, openBuffer)
+            glEnableVertexAttribArray(openPosition); glEnableVertexAttribArray(openNormal)
+            glVertexAttribPointer(openPosition, 3, GL_FLOAT, false, 24, 0)
+            glVertexAttribPointer(openNormal, 3, GL_FLOAT, false, 24, 12)
+        } else {
+            glDisableVertexAttribArray(openPosition); glDisableVertexAttribArray(openNormal)
+            glVertexAttrib3f(openPosition, 0f, 0f, 0f); glVertexAttrib3f(openNormal, 0f, 0f, 1f)
+        }
         glDrawArrays(GL_TRIANGLES, 0, count)
     }
 
     companion object {
+        private fun surface(columns: Int, rows: Int, radial: Boolean = false, point: (Float, Float) -> V): FloatArray {
+            val out = ArrayList<Float>()
+            fun vertex(u: Float, v: Float) {
+                val p = point(u, v)
+                val du = point((u + .0005f).coerceAtMost(1f), v) - point((u - .0005f).coerceAtLeast(0f), v)
+                val dv = point(u, (v + .0005f).coerceAtMost(1f)) - point(u, (v - .0005f).coerceAtLeast(0f))
+                var n = du.cross(dv)
+                if (n.x*n.x + n.y*n.y + n.z*n.z < 1e-16f) n = if (radial) p else V(0f, 0f, 1f)
+                if (if (radial) n.x*p.x + n.y*p.y + n.z*p.z < 0f else n.z < 0f) n = n * -1f
+                n = n.unit()
+                out.addAll(listOf(p.x, p.y, p.z, n.x, n.y, n.z))
+            }
+            for (y in 0 until rows) for (x in 0 until columns) {
+                val a=x/columns.toFloat(); val b=(x+1)/columns.toFloat()
+                val c=y/rows.toFloat(); val d=(y+1)/rows.toFloat()
+                vertex(a,c); vertex(a,d); vertex(b,c)
+                vertex(b,c); vertex(a,d); vertex(b,d)
+            }
+            return out.toFloatArray()
+        }
+
+        private fun cheekWidth(y: Float) = 1f + .08f*exp(-(y+.05f).pow(2)/.08f) - .35f*(-y-.20f).coerceAtLeast(0f)
+        private fun headDepth(x: Float, y: Float): Float {
+            val width = .79f * cheekWidth(y/.72f)
+            return .59f * sqrt((1f-x*x/(width*width)-y*y/.5184f).coerceAtLeast(.015f))
+        }
+
+        fun head() = CatMesh(surface(56, 36, radial = true) { u, v ->
+            val a=u*2f*PI.toFloat(); val b=v*PI.toFloat()
+            val y=cos(b)*.72f
+            val x=sin(b)*cos(a)*.79f*cheekWidth(y/.72f)
+            var z=sin(b)*sin(a)*.59f
+            if (z>0f) {
+                val bridge=.030f*exp(-x*x/.035f-(y-.12f).pow(2)/.16f)
+                val sockets=.025f*exp(-(abs(x)-.30f).pow(2)/.018f-(y-.10f).pow(2)/.025f)
+                z+=(bridge-sockets)*(z/.59f).pow(3)
+            }
+            V(x,y,z)
+        })
+
+        // The same edge defines upper skin, lower skin and the mouth cavity.
+        // No independent painted smile can drift above the moving mouth.
+        private fun lip(u: Float): V {
+            val a=abs(u); val x=u*.31f
+            val y=-.27f-.012f*sin(a*PI.toFloat())-.005f*a*a
+            val envelope=sqrt((1f-u*u).coerceAtLeast(0f))
+            return V(x,y,headDepth(x,y)+.005f+.07f*envelope)
+        }
+
+        private fun lowerLip(u: Float, jaw: Float): V {
+            val edge=lip(u); val envelope=(1f-u*u).coerceAtLeast(0f).pow(.8f)
+            return V(edge.x,edge.y-(.004f+jaw*.18f)*envelope,edge.z-jaw*.045f*envelope)
+        }
+
+        private fun upperPoint(u: Float, v: Float): V {
+            val edge=lip(u); val envelope=sqrt((1f-u*u).coerceAtLeast(0f))
+            val y=edge.y+v*.235f*envelope
+            val blend=(1f-v)*(1f-v)*(1f+2f*v)
+            val arch=sin(v*PI.toFloat()).pow(2)
+            val groove=.018f*exp(-u*u/.003f)*arch
+            val z=headDepth(edge.x,y)+(.005f+.07f*envelope)*blend+.065f*envelope*arch-groove-.002f*v.pow(4)
+            return V(edge.x,y,z)
+        }
+
+        fun upperMuzzle() = CatMesh(surface(48, 16) { s, v -> upperPoint(s*2f-1f,v) })
+
+        fun muzzlePoint(x: Float, y: Float): V {
+            val u=(x/.31f).coerceIn(-.99f,.99f);val edge=lip(u)
+            val height=.235f*sqrt(1f-u*u)
+            return upperPoint(u,((y-edge.y)/height).coerceIn(0f,1f))
+        }
+
+        fun lowerMuzzle(): CatMesh {
+            fun shape(jaw: Float) = surface(48, 14) { s, v ->
+                val u=s*2f-1f; val edge=lowerLip(u,jaw); val envelope=sqrt((1f-u*u).coerceAtLeast(0f))
+                val y=edge.y-v*.15f*envelope
+                val base=headDepth(edge.x,y)
+                val blend=(1f-v)*(1f-v)*(1f+2f*v)
+                val depth=(edge.z-headDepth(edge.x,edge.y))*blend
+                V(edge.x,y,base+depth+.010f*sin(v*PI.toFloat()).pow(2)*envelope-.002f*v.pow(4))
+            }
+            return CatMesh(shape(0f),shape(1f))
+        }
+
+        fun mouth(): CatMesh {
+            fun shape(jaw: Float) = surface(48, 8) { s, v ->
+                val u=s*2f-1f; val top=lip(u); val bottom=lowerLip(u,jaw)
+                val envelope=sqrt((1f-u*u).coerceAtLeast(0f))
+                V(top.x,top.y*(1f-v)+bottom.y*v,
+                    top.z*(1f-v)+bottom.z*v-.002f-.035f*sin(v*PI.toFloat())*envelope)
+            }
+            return CatMesh(shape(0f),shape(1f))
+        }
+
+        fun nose(): CatMesh {
+            var points=listOf(V(-.073f,.026f,0f),V(-.060f,.042f,0f),V(0f,.033f,0f),
+                V(.060f,.042f,0f),V(.073f,.026f,0f),V(.041f,-.018f,0f),V(0f,-.053f,0f),V(-.041f,-.018f,0f))
+            repeat(2) {
+                points=points.indices.flatMap { i ->
+                    val a=points[i]; val b=points[(i+1)%points.size]
+                    listOf(a*.75f+b*.25f,a*.25f+b*.75f)
+                }
+            }
+            points=points.map { val p=muzzlePoint(it.x,it.y-.105f); V(p.x,p.y,p.z+.003f) }
+            val center=V(0f,-.105f,points.maxOf { it.z }+.018f)
+            val faces=points.indices.map { i ->
+                var n=(points[i]-center).cross(points[(i+1)%points.size]-center).unit()
+                if(n.z<0f)n=n*-1f
+                n
+            }
+            val centerNormal=faces.reduce { a,b -> a+b }.unit()
+            val out=ArrayList<Float>()
+            for(i in points.indices) {
+                val j=(i+1)%points.size
+                val normals=listOf(centerNormal,(faces[(i+points.size-1)%points.size]+faces[i]).unit(),(faces[i]+faces[j]).unit())
+                for((k,p) in listOf(center,points[i],points[j]).withIndex()) {
+                    val n=normals[k]
+                    out.addAll(listOf(p.x,p.y,p.z,n.x,n.y,n.z))
+                }
+            }
+            return CatMesh(out.toFloatArray())
+        }
+
+        fun eye() = CatMesh(surface(32, 24, radial = true) { u, v ->
+            val a=u*2f*PI.toFloat();val b=v*PI.toFloat()
+            val x=sin(b)*cos(a)
+            V(x,cos(b)*(1f-.35f*x*x),sin(b)*sin(a))
+        })
+
         fun sphere(): CatMesh {
             val out = ArrayList<Float>()
             fun point(u: Float, v: Float): V {
@@ -78,30 +221,6 @@ internal class CatMesh(vertices: FloatArray) {
             }
             return CatMesh(out.toFloatArray())
         }
-        fun furMarks(): CatMesh {
-            val out=ArrayList<Float>()
-            fun surface(x:Float,y:Float):V = V(x,y,.60f*sqrt((1-x*x/.64f-y*y/.4761f).coerceAtLeast(.025f))+.004f)
-            fun vertex(v:V) {
-                val n=V(v.x/.64f,v.y/.4761f,v.z/.36f).unit()
-                out.addAll(listOf(v.x,v.y,v.z,n.x,n.y,n.z))
-            }
-            fun ribbon(points:List<V>,width:Float) {
-                for(i in 0 until points.lastIndex) for(step in 0 until 12) {
-                    val from=points[i]; val to=points[i+1]
-                    fun at(t:Float)=V(from.x+(to.x-from.x)*t,from.y+(to.y-from.y)*t,0f)
-                    val a=at(step/12f); val b=at((step+1)/12f); val d=b-a
-                    val length=sqrt(d.x*d.x+d.y*d.y);val dx=-d.y/length*width;val dy=d.x/length*width
-                    val al=surface(a.x+dx,a.y+dy);val ar=surface(a.x-dx,a.y-dy)
-                    val bl=surface(b.x+dx,b.y+dy);val br=surface(b.x-dx,b.y-dy)
-                    listOf(al,ar,bl,bl,ar,br).forEach(::vertex)
-                }
-            }
-            ribbon(listOf(V(0f,.57f,0f),V(0f,.43f,0f)),.025f)
-            for(side in listOf(-1f,1f)) ribbon(listOf(V(side*.22f,.54f,0f),V(side*.15f,.43f,0f)),.020f)
-            for(side in listOf(-1f,1f)) for(i in 0..2) {
-                ribbon(listOf(V(side*.73f,.01f-i*.105f,0f),V(side*.63f,-.025f-i*.105f,0f)),.017f)
-            }
-            return CatMesh(out.toFloatArray())
-        }
+
     }
 }

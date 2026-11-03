@@ -23,11 +23,13 @@ class MascotPreviewActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val emotion = intent.getStringExtra("emotion") ?: "neutral"
         val activity = intent.getStringExtra("activity") ?: "idle"
+        val jaw = intent.getFloatExtra("jaw", -1f)
         setContent {
             var t by remember { mutableFloatStateOf(0f) }
             LaunchedEffect(Unit) { while (true) { delay(33); t += .033f } }
             Column(Modifier.fillMaxSize().background(Color(0xFF10141C)).systemBarsPadding(), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
-                CatMascot(CatPose(emotion, activity, if(activity=="speaking") abs(sin(t*8f)*sin(t*2.7f)) else 0f),Modifier.size(340.dp))
+                val level = if(jaw >= 0f) jaw.coerceIn(0f,1f) else abs(sin(t*8f)*sin(t*2.7f))
+                CatMascot(CatPose(emotion, activity, if(activity=="speaking") level else 0f),Modifier.size(340.dp))
                 Text("$emotion · $activity",color=Color(0xFF93E8D0))
             }
         }

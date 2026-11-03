@@ -13,21 +13,30 @@ internal class CatRenderer : GLSurfaceView.Renderer {
     @Volatile var pose = CatPose()
     private var program = 0
     private var position = 0; private var normal = 0
+    private var openPosition = 0; private var openNormal = 0; private var morphUniform = 0
     private var modelUniform = 0; private var normalUniform = 0; private var vpUniform = 0
-    private var colorUniform = 0; private var glossUniform = 0; private var furUniform = 0
+    private var colorUniform = 0; private var glossUniform = 0; private var furUniform = 0; private var irisUniform = 0
+    private var headInverseUniform = 0
     private lateinit var sphere: CatMesh
     private lateinit var cylinder: CatMesh
     private lateinit var ear: CatMesh
-    private lateinit var furMarks: CatMesh
+    private lateinit var skull: CatMesh
+    private lateinit var upperMuzzle: CatMesh
+    private lateinit var lowerMuzzle: CatMesh
+    private lateinit var mouth: CatMesh
+    private lateinit var nose: CatMesh
+    private lateinit var eyeShape: CatMesh
     private val projection = FloatArray(16); private val view = FloatArray(16); private val vp = FloatArray(16)
     private val model = FloatArray(16); private val inverse = FloatArray(16); private val normals = FloatArray(16)
     private val root = FloatArray(16); private val head = FloatArray(16)
-    private val fur = floatArrayOf(.94f,.59f,.31f)
-    private val lightFur = floatArrayOf(1f,.70f,.43f)
+    private val headInverse = FloatArray(16)
+    private val fur = floatArrayOf(.74f,.48f,.27f)
     private val cream = floatArrayOf(.99f,.90f,.77f)
     private val stripe = floatArrayOf(.39f,.20f,.105f)
     private val ink = floatArrayOf(.07f,.075f,.075f)
-    private val pink = floatArrayOf(.88f,.46f,.50f)
+    private val pink = floatArrayOf(.62f,.34f,.32f)
+    private val iris = floatArrayOf(.36f,.48f,.24f)
+    private val mouthColor = floatArrayOf(.075f,.035f,.032f)
     private var angry = 0f; private var proud = 0f; private var think = 0f; private var listen = 0f
     private var jaw = 0f
     private var last = 0L
@@ -36,10 +45,15 @@ internal class CatRenderer : GLSurfaceView.Renderer {
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         program = makeProgram(VERTEX, FRAGMENT)
         position = glGetAttribLocation(program,"aPosition"); normal = glGetAttribLocation(program,"aNormal")
+        openPosition = glGetAttribLocation(program,"aOpenPosition"); openNormal = glGetAttribLocation(program,"aOpenNormal")
+        morphUniform = glGetUniformLocation(program,"uMorph")
         modelUniform = glGetUniformLocation(program,"uModel"); normalUniform = glGetUniformLocation(program,"uNormal")
         vpUniform = glGetUniformLocation(program,"uVP"); colorUniform = glGetUniformLocation(program,"uColor")
         glossUniform = glGetUniformLocation(program,"uGloss"); furUniform = glGetUniformLocation(program,"uFur")
-        sphere = CatMesh.sphere(); cylinder = CatMesh.cylinder(); ear = CatMesh.ear(); furMarks = CatMesh.furMarks()
+        irisUniform = glGetUniformLocation(program,"uIris"); headInverseUniform = glGetUniformLocation(program,"uHeadInverse")
+        sphere = CatMesh.sphere(); cylinder = CatMesh.cylinder(); ear = CatMesh.ear()
+        skull = CatMesh.head(); upperMuzzle = CatMesh.upperMuzzle(); lowerMuzzle = CatMesh.lowerMuzzle()
+        mouth = CatMesh.mouth(); nose = CatMesh.nose(); eyeShape = CatMesh.eye()
         glEnable(GL_DEPTH_TEST)
         glClearColor(16/255f,20/255f,28/255f,1f)
         Matrix.setLookAtM(view,0,0f,.35f,5.8f,0f,.22f,0f,0f,1f,0f)
@@ -66,7 +80,7 @@ internal class CatRenderer : GLSurfaceView.Renderer {
         val breathe=sin(t*1.9f)*.018f
         val blinkPhase=t%5.7f
         val blink=when { blinkPhase<.11f -> blinkPhase/.11f; blinkPhase<.22f -> 1-(blinkPhase-.11f)/.11f; blinkPhase in 5.03f..5.20f -> sin((blinkPhase-5.03f)/.17f*PI.toFloat()); else -> 0f }
-        val open=((1-blink)*(.96f-angry*.30f-proud*.24f)).coerceAtLeast(.035f)
+        val open=((1-blink)*(.96f-angry*.18f-proud*.16f)).coerceAtLeast(.035f)
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
         glUseProgram(program)
         glEnableVertexAttribArray(position);glEnableVertexAttribArray(normal)
@@ -80,62 +94,61 @@ internal class CatRenderer : GLSurfaceView.Renderer {
         Matrix.rotateM(head,0,-5f+sin(t*.65f)*3f+pondering*13f+angry*11f,0f,1f,0f)
         Matrix.rotateM(head,0,listen*(10f+sin(t*1.4f)*2f)-pondering*7f+sin(t*.85f)*1.4f,0f,0f,1f)
         Matrix.rotateM(head,0,proud*(-5f+sin(t*1.7f)*1.8f)+pondering*3f,1f,0f,0f)
-        ball(head,0f,0f,0f,.80f,.69f,.60f,fur)
-        ball(head,-.53f,-.17f,.12f,.31f,.30f,.39f,lightFur)
-        ball(head,.53f,-.17f,.12f,.31f,.30f,.39f,lightFur)
+        Matrix.invertM(headInverse,0,head,0)
+        glUniformMatrix4fv(headInverseUniform,1,false,headInverse,0)
+        draw(skull,head,V(0f,0f,0f),V(1f,1f,1f),fur)
         for(side in listOf(-1f,1f)) {
             val earBase=FloatArray(16);System.arraycopy(head,0,earBase,0,16)
             Matrix.translateM(earBase,0,side*.53f,.52f,-.02f)
             val twitch=exp(-(((t+if(side>0)1.7f else 0f)%8.2f)-.25f).pow(2)/.012f)*9f
             Matrix.rotateM(earBase,0,side*(angry*19f-listen*8f+twitch),0f,0f,1f)
             Matrix.rotateM(earBase,0,angry*24f-listen*12f,1f,0f,0f)
-            draw(ear,earBase,V(0f,0f,0f),V(-side*.90f,.85f,1f),fur)
-            draw(ear,earBase,V(0f,.025f,.13f),V(-side*.58f,.58f,.40f),pink,14f)
+            draw(ear,earBase,V(0f,0f,0f),V(-side*.82f,.94f,1f),fur)
+            draw(ear,earBase,V(0f,.025f,.13f),V(-side*.52f,.64f,.40f),pink,14f)
 
             // Layered eyeball, iris, pupil and highlights all follow the head rig.
-            val x=side*.30f; val gaze=sin(t*.48f)*.018f+pondering*.035f
-            ball(head,x,.025f,.505f,.240f,.245f*open,.105f,floatArrayOf(.57f,.35f,.21f),16f)
-            ball(head,x,.025f,.532f,.225f,.230f*open,.095f,floatArrayOf(.99f,.96f,.85f),65f)
-            ball(head,x+gaze,.022f+pondering*.025f,.610f,.154f,.198f*open,.043f,floatArrayOf(.24f,.53f,.43f),95f)
-            ball(head,x+gaze,.022f+pondering*.025f,.646f,.075f+listen*.012f,.170f*open,.016f,ink,100f)
+            val x=side*.31f; val gaze=sin(t*.48f)*.012f+pondering*.023f
+            eyeball(head,x,.095f,.505f,.225f,.184f*open,.105f,fur)
+            eyeball(head,x,.095f,.534f,.207f,.166f*open,.095f,floatArrayOf(.25f,.19f,.13f),28f)
+            eyeball(head,x,.095f,.548f,.197f,.153f*open,.092f,floatArrayOf(.79f,.78f,.63f),65f)
+            ball(head,x+gaze,.092f+pondering*.016f,.616f,.170f,.138f*open,.043f,iris,95f)
+            ball(head,x+gaze,.092f+pondering*.016f,.652f,.034f+listen*.016f,.120f*open,.015f,ink,90f)
             if(open>.12f) {
-                ball(head,x-.042f+gaze,.096f,.665f,.042f,.047f*open,.013f,floatArrayOf(1f,.99f,.94f),120f)
-                ball(head,x+.045f+gaze,-.025f,.665f,.016f,.020f*open,.008f,floatArrayOf(.75f,.92f,.87f),100f)
-            }
-            if(angry>.02f || pondering>.02f) {
-                val innerY=.32f-angry*.13f+pondering*.015f
-                link(head,V(side*.17f,innerY,.545f),V(side*.48f,.32f+angry*.07f,.455f),.010f,stripe)
+                ball(head,x-.042f+gaze,.150f,.670f,.020f,.027f*open,.010f,floatArrayOf(1f,.99f,.94f),120f)
+                ball(head,x+.039f+gaze,.059f,.670f,.008f,.010f*open,.006f,floatArrayOf(.75f,.92f,.87f),100f)
             }
         }
-        draw(furMarks,head,V(0f,0f,0f),V(1f,1f,1f),floatArrayOf(.48f,.26f,.13f))
-
-        val mouth=.025f+jaw*.12f
-        if(jaw>.04f) ball(head,0f,-.275f,.567f,.17f,mouth+.025f,.105f,ink,8f)
-        ball(head,0f,-.36f-jaw*.10f,.525f,.26f,.12f,.145f,cream)
+        draw(mouth,head,V(0f,0f,0f),V(1f,1f,1f),mouthColor,8f)
+        draw(upperMuzzle,head,V(0f,0f,0f),V(1f,1f,1f),fur)
+        draw(lowerMuzzle,head,V(0f,0f,0f),V(1f,1f,1f),fur)
         for(side in listOf(-1f,1f)) {
-            ball(head,side*.17f,-.175f,.50f,.265f,.18f,.185f,cream)
-            for(i in 0..2) ball(head,side*(.19f+i*.053f),-.15f-(i%2)*.055f,.678f-i*.007f,.012f,.011f,.008f,stripe)
+            for(i in 0..2) {
+                val p=CatMesh.muzzlePoint(side*(.16f+i*.048f),-.14f-(i%2)*.045f)
+                ball(head,p.x,p.y,p.z+.002f,.007f,.006f,.004f,stripe)
+            }
             // Slightly curved whiskers, with a subtle twitch during listening.
             for(i in -1..1) {
-                val start=V(side*.28f,-.20f+i*.045f,.66f)
-                val end=V(side*(.86f+abs(i)*.04f),-.20f+i*.15f+sin(t*2+i)*listen*.018f,.51f)
-                val mid=V(side*.57f,-.20f+i*.10f,.64f)
-                link(head,start,mid,.008f,floatArrayOf(.73f,.65f,.52f));link(head,mid,end,.005f,cream)
+                val p=CatMesh.muzzlePoint(side*.25f,-.18f+i*.036f)
+                val start=V(p.x,p.y,p.z+.003f)
+                val end=V(side*(.85f+abs(i)*.04f),-.18f+i*.13f+sin(t*2+i)*listen*.018f,.51f)
+                val mid=V(side*.55f,-.18f+i*.085f,.64f)
+                link(head,start,mid,.005f,floatArrayOf(.62f,.58f,.48f));link(head,mid,end,.003f,cream)
             }
         }
-        ball(head,0f,-.09f,.702f,.072f,.052f,.045f,pink,55f)
-        link(head,V(0f,-.14f,.71f),V(0f,-.22f,.70f),.010f,stripe)
-        if(jaw>.12f) ball(head,0f,-.29f-jaw*.06f,.67f,.065f,.022f,.02f,pink,20f)
-        if(jaw<.25f) for(side in listOf(-1f,1f)) {
-            val y=-.24f+proud*.015f
-            link(head,V(0f,-.22f,.70f),V(side*.09f,y-angry*.02f,.69f),.009f,stripe)
-            link(head,V(side*.09f,y-angry*.02f,.69f),V(side*.16f,y+.035f-angry*.085f,.66f),.008f,stripe)
+        draw(nose,head,V(0f,0f,0f),V(1f,1f,1f),pink,36f)
+        for(side in listOf(-1f,1f)) {
+            val p=CatMesh.muzzlePoint(side*.043f,-.104f)
+            ball(head,p.x,p.y,p.z+.025f,.010f,.005f,.005f,mouthColor,28f)
         }
         glDisableVertexAttribArray(position);glDisableVertexAttribArray(normal)
+        glDisableVertexAttribArray(openPosition);glDisableVertexAttribArray(openNormal)
     }
 
     private fun ball(base: FloatArray,x:Float,y:Float,z:Float,sx:Float,sy:Float,sz:Float,color:FloatArray,gloss:Float=12f) =
         draw(sphere,base,V(x,y,z),V(sx,sy,sz),color,gloss)
+
+    private fun eyeball(base: FloatArray,x:Float,y:Float,z:Float,sx:Float,sy:Float,sz:Float,color:FloatArray,gloss:Float=12f) =
+        draw(eyeShape,base,V(x,y,z),V(sx,sy,sz),color,gloss)
 
     private fun draw(mesh: CatMesh,base:FloatArray,p:V,s:V,color:FloatArray,gloss:Float=12f,rotation:Float=0f,axis:V=V(0f,1f,0f)) {
         System.arraycopy(base,0,model,0,16)
@@ -145,8 +158,10 @@ internal class CatRenderer : GLSurfaceView.Renderer {
         Matrix.invertM(inverse,0,model,0);Matrix.transposeM(normals,0,inverse,0)
         glUniformMatrix4fv(modelUniform,1,false,model,0);glUniformMatrix4fv(normalUniform,1,false,normals,0)
         glUniform3fv(colorUniform,1,color,0);glUniform1f(glossUniform,gloss)
-        glUniform1f(furUniform,if(gloss<=16f)1f else 0f)
-        mesh.draw(position,normal)
+        glUniform1f(furUniform,if(color===fur)1f else 0f)
+        glUniform1f(irisUniform,if(color===iris)1f else 0f)
+        glUniform1f(morphUniform,if(mesh.morphing)jaw else 0f)
+        mesh.draw(position,normal,openPosition,openNormal)
     }
 
     private fun link(base:FloatArray,a:V,b:V,r:Float,color:FloatArray) {
@@ -173,24 +188,56 @@ internal class CatRenderer : GLSurfaceView.Renderer {
     companion object {
         private const val VERTEX="""
             attribute vec3 aPosition; attribute vec3 aNormal;
-            uniform mat4 uModel; uniform mat4 uNormal; uniform mat4 uVP;
-            varying vec3 vPosition; varying vec3 vNormal;
-            void main(){ vec4 world=uModel*vec4(aPosition,1.0); vPosition=world.xyz;
-                vNormal=normalize(mat3(uNormal)*aNormal); gl_Position=uVP*world; }
+            attribute vec3 aOpenPosition; attribute vec3 aOpenNormal; uniform float uMorph;
+            uniform mat4 uModel; uniform mat4 uNormal; uniform mat4 uVP; uniform mat4 uHeadInverse;
+            varying vec3 vPosition; varying vec3 vNormal; varying vec3 vMeshPosition; varying vec3 vHeadPosition;
+            void main(){ vec3 p=mix(aPosition,aOpenPosition,uMorph);
+                vec4 world=uModel*vec4(p,1.0); vPosition=world.xyz; vMeshPosition=p;
+                vHeadPosition=(uHeadInverse*uModel*vec4(aPosition,1.0)).xyz;
+                vNormal=normalize(mat3(uNormal)*mix(aNormal,aOpenNormal,uMorph)); gl_Position=uVP*world; }
         """
         private const val FRAGMENT="""
+            #ifdef GL_FRAGMENT_PRECISION_HIGH
+            precision highp float;
+            #else
             precision mediump float;
-            varying vec3 vPosition; varying vec3 vNormal;
-            uniform vec3 uColor; uniform float uGloss; uniform float uFur;
+            #endif
+            varying vec3 vPosition; varying vec3 vNormal; varying vec3 vMeshPosition; varying vec3 vHeadPosition;
+            uniform vec3 uColor; uniform float uGloss; uniform float uFur; uniform float uIris;
+            float hash(vec3 p){p=fract(p*0.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
+            float noise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+                return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+                    mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
             void main(){
                 vec3 n=normalize(vNormal); vec3 eye=normalize(vec3(0.0,0.35,5.8)-vPosition);
+                vec3 base=uColor;
+                if(uFur>0.5){
+                    vec3 p=vHeadPosition;
+                    float fine=noise(p*vec3(150.0,650.0,150.0));
+                    float mottling=noise(p*22.0);
+                    float forehead=pow(max(cos(p.x*35.0+sin(p.y*12.0)*1.3+noise(p*9.0)*1.5),0.0),7.0)*smoothstep(0.18,0.45,p.y);
+                    float cheek=pow(max(cos(p.y*40.0+abs(p.x)*5.0),0.0),6.0)*smoothstep(0.48,0.70,abs(p.x))*(1.0-smoothstep(0.10,0.30,p.y));
+                    float marks=(forehead+cheek)*smoothstep(0.16,0.42,p.z)*(0.55+0.45*mottling);
+                    base*=1.0-0.42*clamp(marks,0.0,1.0);
+                    vec2 patchPosition=vec2(p.x/0.49,(p.y+0.26)/0.34);
+                    float patch=dot(patchPosition,patchPosition);
+                    float cream=(1.0-smoothstep(0.72,1.05,patch))*smoothstep(0.22,0.48,p.z);
+                    base=mix(base,vec3(0.88,0.84,0.73),cream);
+                    base*=0.975+0.035*fine+0.025*mottling;
+                }
+                if(uIris>0.5){
+                    float r=length(vMeshPosition.xy);float a=atan(vMeshPosition.y,vMeshPosition.x);
+                    float fibers=sin(a*61.0+sin(r*11.0)*0.7);
+                    base=mix(vec3(0.49,0.43,0.20),base,smoothstep(0.15,0.65,r));
+                    base*=0.85+0.13*fibers;
+                    base*=1.0-0.65*smoothstep(0.78,0.98,r);
+                }
                 vec3 key=normalize(vec3(-0.5,0.75,0.9)); vec3 fill=normalize(vec3(0.8,0.3,0.7));
                 float k=max(dot(n,key),0.0); float f=max(dot(n,fill),0.0);
                 float rim=pow(1.0-max(dot(n,eye),0.0),3.0)*max(dot(n,normalize(vec3(0.1,0.7,-1.0))),0.0);
                 float spec=pow(max(dot(n,normalize(key+eye)),0.0),uGloss);
-                float grain=fract(sin(dot(floor(vPosition*170.0),vec3(12.9898,78.233,45.164)))*43758.5453);
-                vec3 color=uColor*(0.34+0.66*k+0.20*f)*(1.0+uFur*(grain-0.5)*0.025);
-                color+=vec3(0.25,0.37,0.37)*rim+vec3(1.0,0.94,0.84)*spec*(uGloss>40.0?0.44:0.06);
+                vec3 color=base*(0.38+0.57*k+0.20*f);
+                color+=vec3(0.25,0.32,0.30)*rim+vec3(1.0,0.94,0.84)*spec*(uFur>0.5?0.018:(uGloss>40.0?0.30:0.04));
                 gl_FragColor=vec4(color,1.0);
             }
         """
