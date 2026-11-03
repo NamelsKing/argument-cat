@@ -22,12 +22,12 @@ internal class CatRenderer : GLSurfaceView.Renderer {
     private val projection = FloatArray(16); private val view = FloatArray(16); private val vp = FloatArray(16)
     private val model = FloatArray(16); private val inverse = FloatArray(16); private val normals = FloatArray(16)
     private val root = FloatArray(16); private val head = FloatArray(16)
-    private val fur = floatArrayOf(.88f,.46f,.20f)
-    private val lightFur = floatArrayOf(.98f,.62f,.30f)
-    private val cream = floatArrayOf(.99f,.86f,.65f)
+    private val fur = floatArrayOf(.94f,.59f,.31f)
+    private val lightFur = floatArrayOf(1f,.70f,.43f)
+    private val cream = floatArrayOf(.99f,.90f,.77f)
     private val stripe = floatArrayOf(.39f,.20f,.105f)
     private val ink = floatArrayOf(.07f,.075f,.075f)
-    private val pink = floatArrayOf(.77f,.34f,.35f)
+    private val pink = floatArrayOf(.88f,.46f,.50f)
     private var angry = 0f; private var proud = 0f; private var think = 0f; private var listen = 0f
     private var jaw = 0f
     private var last = 0L
@@ -42,12 +42,12 @@ internal class CatRenderer : GLSurfaceView.Renderer {
         sphere = CatMesh.sphere(); cylinder = CatMesh.cylinder(); ear = CatMesh.ear(); furMarks = CatMesh.furMarks()
         glEnable(GL_DEPTH_TEST)
         glClearColor(16/255f,20/255f,28/255f,1f)
-        Matrix.setLookAtM(view,0,0f,.35f,5.8f,0f,.13f,0f,0f,1f,0f)
+        Matrix.setLookAtM(view,0,0f,.35f,5.8f,0f,.22f,0f,0f,1f,0f)
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         glViewport(0,0,width,height)
-        Matrix.perspectiveM(projection,0,29f,width.toFloat()/height.coerceAtLeast(1),.1f,30f)
+        Matrix.perspectiveM(projection,0,21.5f,width.toFloat()/height.coerceAtLeast(1),.1f,30f)
         Matrix.multiplyMM(vp,0,projection,0,view,0)
     }
 
@@ -72,67 +72,44 @@ internal class CatRenderer : GLSurfaceView.Renderer {
         glEnableVertexAttribArray(position);glEnableVertexAttribArray(normal)
         glUniformMatrix4fv(vpUniform,1,false,vp,0)
         Matrix.setIdentityM(root,0)
-        ball(root,0f,-1.12f,0f,.87f,.025f,.49f,floatArrayOf(.027f,.04f,.052f),1f)
-
-        // Curved tail behind the silhouette. Irritation produces a sharper, faster flick.
-        val tail=ArrayList<V>()
-        for(i in 0..13) {
-            val u=i/13f; val a=u*3.7f
-            tail.add(V(.39f+.63f*sin(a*.66f)+sin(t*(1.3f+angry*4f)+u*2)*u*.055f,
-                -.94f+u*.92f,-.30f-.12f*cos(a)))
-        }
-        for(i in 0 until tail.lastIndex) link(root,tail[i],tail[i+1],.115f-i*.0032f,if(i in listOf(3,7,11))stripe else fur)
-        ball(root,tail.last().x,tail.last().y,tail.last().z,.075f,.075f,.075f,cream)
-
+        // A floating head keeps expressions large without taking space from the chat.
         Matrix.translateM(root,0,0f,breathe,0f)
         Matrix.rotateM(root,0,sin(t*.62f)*1.4f,0f,1f,0f)
-        ball(root,0f,-.55f,-.13f,.54f,.62f+proud*.025f,.39f,fur)
-        ball(root,-.34f,-.85f,-.11f,.30f,.29f,.35f,fur)
-        ball(root,.34f,-.85f,-.11f,.30f,.29f,.35f,fur)
-        ball(root,0f,-.56f,.20f,.34f,.45f,.19f,cream)
-        for(side in listOf(-1f,1f)) {
-            val paw=V(side*(.37f-angry*.62f),-.97f+pondering*(if(side<0).90f else .02f)+angry*(if(side<0).565f else .485f)+proud*.025f*sin(t*3f+side),.34f+pondering*.17f+angry*(if(side<0).23f else .19f))
-            link(root,V(side*.39f,-.27f,.03f),paw,.15f,lightFur)
-            ball(root,paw.x,paw.y,paw.z,.185f,.15f,.21f,lightFur)
-            for(toe in -1..1) ball(root,paw.x+toe*.075f,paw.y-.01f,paw.z+.13f,.057f,.055f,.075f,lightFur)
-        }
-        // Collar and a small tag give the bust a consistent character silhouette.
-        ball(root,0f,-.14f,.02f,.46f,.105f,.38f,floatArrayOf(.08f,.37f,.34f),28f)
-        ball(root,0f,-.26f,.385f,.075f,.09f,.035f,floatArrayOf(.91f,.65f,.24f),55f)
-
         System.arraycopy(root,0,head,0,16)
-        Matrix.translateM(head,0,0f,.40f+proud*.025f,0f)
+        Matrix.translateM(head,0,0f,proud*.025f,0f)
         Matrix.rotateM(head,0,-5f+sin(t*.65f)*3f+pondering*13f+angry*11f,0f,1f,0f)
         Matrix.rotateM(head,0,listen*(10f+sin(t*1.4f)*2f)-pondering*7f+sin(t*.85f)*1.4f,0f,0f,1f)
         Matrix.rotateM(head,0,proud*(-5f+sin(t*1.7f)*1.8f)+pondering*3f,1f,0f,0f)
         ball(head,0f,0f,0f,.80f,.69f,.60f,fur)
-        ball(head,-.54f,-.19f,.12f,.30f,.29f,.39f,lightFur)
-        ball(head,.54f,-.19f,.12f,.30f,.29f,.39f,lightFur)
+        ball(head,-.53f,-.17f,.12f,.31f,.30f,.39f,lightFur)
+        ball(head,.53f,-.17f,.12f,.31f,.30f,.39f,lightFur)
         for(side in listOf(-1f,1f)) {
             val earBase=FloatArray(16);System.arraycopy(head,0,earBase,0,16)
             Matrix.translateM(earBase,0,side*.53f,.52f,-.02f)
             val twitch=exp(-(((t+if(side>0)1.7f else 0f)%8.2f)-.25f).pow(2)/.012f)*9f
             Matrix.rotateM(earBase,0,side*(angry*19f-listen*8f+twitch),0f,0f,1f)
             Matrix.rotateM(earBase,0,angry*24f-listen*12f,1f,0f,0f)
-            draw(ear,earBase,V(0f,0f,0f),V(-side,1f,1f),fur)
-            draw(ear,earBase,V(0f,.025f,.13f),V(-side*.64f,.69f,.40f),pink,14f)
+            draw(ear,earBase,V(0f,0f,0f),V(-side*.90f,.85f,1f),fur)
+            draw(ear,earBase,V(0f,.025f,.13f),V(-side*.58f,.58f,.40f),pink,14f)
 
             // Layered eyeball, iris, pupil and highlights all follow the head rig.
-            val x=side*.315f; val gaze=sin(t*.48f)*.018f+pondering*.035f
-            ball(head,x,.065f,.505f,.211f,.218f*open,.105f,floatArrayOf(.50f,.27f,.13f),16f)
-            ball(head,x,.065f,.532f,.194f,.200f*open,.095f,floatArrayOf(.93f,.90f,.77f),65f)
-            ball(head,x+gaze,.062f+pondering*.025f,.610f,.129f,.173f*open,.043f,floatArrayOf(.30f,.54f,.37f),95f)
-            ball(head,x+gaze,.062f+pondering*.025f,.646f,.039f+listen*.012f,.145f*open,.016f,ink,100f)
+            val x=side*.30f; val gaze=sin(t*.48f)*.018f+pondering*.035f
+            ball(head,x,.025f,.505f,.240f,.245f*open,.105f,floatArrayOf(.57f,.35f,.21f),16f)
+            ball(head,x,.025f,.532f,.225f,.230f*open,.095f,floatArrayOf(.99f,.96f,.85f),65f)
+            ball(head,x+gaze,.022f+pondering*.025f,.610f,.154f,.198f*open,.043f,floatArrayOf(.24f,.53f,.43f),95f)
+            ball(head,x+gaze,.022f+pondering*.025f,.646f,.075f+listen*.012f,.170f*open,.016f,ink,100f)
             if(open>.12f) {
-                ball(head,x-.042f+gaze,.126f,.665f,.036f,.042f*open,.013f,floatArrayOf(1f,.99f,.94f),120f)
-                ball(head,x+.04f+gaze,.015f,.665f,.014f,.017f*open,.008f,floatArrayOf(.75f,.92f,.87f),100f)
+                ball(head,x-.042f+gaze,.096f,.665f,.042f,.047f*open,.013f,floatArrayOf(1f,.99f,.94f),120f)
+                ball(head,x+.045f+gaze,-.025f,.665f,.016f,.020f*open,.008f,floatArrayOf(.75f,.92f,.87f),100f)
             }
-            val innerY=.32f-angry*.13f+proud*.025f
-            link(head,V(side*.17f,innerY,.545f),V(side*.48f,.32f+angry*.07f,.455f),.011f,stripe)
+            if(angry>.02f || pondering>.02f) {
+                val innerY=.32f-angry*.13f+pondering*.015f
+                link(head,V(side*.17f,innerY,.545f),V(side*.48f,.32f+angry*.07f,.455f),.010f,stripe)
+            }
         }
         draw(furMarks,head,V(0f,0f,0f),V(1f,1f,1f),floatArrayOf(.48f,.26f,.13f))
 
-        val mouth=.025f+jaw*.16f
+        val mouth=.025f+jaw*.12f
         if(jaw>.04f) ball(head,0f,-.275f,.567f,.17f,mouth+.025f,.105f,ink,8f)
         ball(head,0f,-.36f-jaw*.10f,.525f,.26f,.12f,.145f,cream)
         for(side in listOf(-1f,1f)) {
@@ -146,7 +123,7 @@ internal class CatRenderer : GLSurfaceView.Renderer {
                 link(head,start,mid,.008f,floatArrayOf(.73f,.65f,.52f));link(head,mid,end,.005f,cream)
             }
         }
-        ball(head,0f,-.09f,.702f,.09f,.065f,.055f,pink,55f)
+        ball(head,0f,-.09f,.702f,.072f,.052f,.045f,pink,55f)
         link(head,V(0f,-.14f,.71f),V(0f,-.22f,.70f),.010f,stripe)
         if(jaw>.12f) ball(head,0f,-.29f-jaw*.06f,.67f,.065f,.022f,.02f,pink,20f)
         if(jaw<.25f) for(side in listOf(-1f,1f)) {

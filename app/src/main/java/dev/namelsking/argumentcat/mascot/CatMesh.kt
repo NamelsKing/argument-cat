@@ -96,7 +96,8 @@ internal class CatMesh(vertices: FloatArray) {
                     listOf(al,ar,bl,bl,ar,br).forEach(::vertex)
                 }
             }
-            ribbon(listOf(V(-.33f,.44f,0f),V(-.18f,.33f,0f),V(0f,.51f,0f),V(.18f,.33f,0f),V(.33f,.44f,0f)),.020f)
+            ribbon(listOf(V(0f,.57f,0f),V(0f,.43f,0f)),.025f)
+            for(side in listOf(-1f,1f)) ribbon(listOf(V(side*.22f,.54f,0f),V(side*.15f,.43f,0f)),.020f)
             for(side in listOf(-1f,1f)) for(i in 0..2) {
                 ribbon(listOf(V(side*.73f,.01f-i*.105f,0f),V(side*.63f,-.025f-i*.105f,0f)),.017f)
             }

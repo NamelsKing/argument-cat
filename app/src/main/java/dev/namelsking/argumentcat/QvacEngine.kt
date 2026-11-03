@@ -101,15 +101,18 @@ class QvacEngine(private val context: Context) : CatEngine {
 
     suspend fun synthesize(text: String, progress: (String) -> Unit = {}): ShortArray = lock.withLock {
         val config = buildJsonObject {
-            put("ttsEngine", "supertonic"); put("language", "en"); put("voice", "M1")
-            put("ttsNumInferenceSteps", 5); put("outputSampleRate", 44_100)
+            put("ttsEngine", "parler")
+            put("description", "Laura speaks with a soft, warm female voice at a conversational pace. Her delivery is gentle and lightly playful, with clear articulation. The recording is very clear, with no background noise.")
+            put("threads", 4); put("useGPU", false); put("seed", 42)
+            put("maxFrames", 1720); put("outputSampleRate", 44_100)
         }
-        val id = modelDeadline(30 * 60_000L, "Model loading") { model(Models.TTS_MULTILINGUAL_SUPERTONIC3_Q4_0, config, progress) }
-        // This specific public Supertonic3 model uses signed PCM16 at 44.1 kHz.
-        modelDeadline(90_000L, "Voice generation") {
+        val id = modelDeadline(30 * 60_000L, "Model loading") { model(Models.TTS_MINI_V1_EN_PARLER_TTS_Q8_0, config, progress) }
+        // Parler Mini returns signed PCM16 at the same native 44.1 kHz as playback.
+        progress("Generating the cat's voice…")
+        modelDeadline(180_000L, "Voice generation") {
             val samples = client().speech.synthesize(id, text).samples
             SpeechPcm.normalized(samples).also {
-                android.util.Log.d("ArgumentCatAudio", "samples=${it.size} sourcePeak=${samples.maxOf { v -> kotlin.math.abs(v) }} playbackPeak=${it.maxOf { v -> kotlin.math.abs(v.toInt()) }}")
+                android.util.Log.d("ArgumentCatAudio", "engine=parler voice=Laura samples=${it.size} sourcePeak=${samples.maxOf { v -> kotlin.math.abs(v) }} playbackPeak=${it.maxOf { v -> kotlin.math.abs(v.toInt()) }}")
             }
         }
     }
