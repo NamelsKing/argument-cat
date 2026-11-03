@@ -111,7 +111,7 @@ internal class CatRenderer : GLSurfaceView.Renderer {
 
             // Layered eyeball, iris, pupil and highlights all follow the head rig.
             val x=side*.30f; val gaze=sin(t*.48f)*.018f+pondering*.035f
-            val eyeLift=.09f
+            val eyeLift=.12f
             ball(head,x,.025f+eyeLift,.505f,.240f,.245f*open,.105f,floatArrayOf(.57f,.35f,.21f),16f)
             ball(head,x,.025f+eyeLift,.532f,.225f,.230f*open,.095f,floatArrayOf(.99f,.96f,.85f),65f)
             ball(head,x+gaze,.022f+eyeLift+pondering*.025f,.610f,.154f,.198f*open,.043f,iris,95f)
