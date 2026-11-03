@@ -17,3 +17,11 @@ recordings/
 *.aab
 *.jks
 *.keystore
+
+# Local assistant instructions and session state do not belong in the public app.
+.agents/
+.claude/
+.codex/
+.cursor/
+AGENTS.md
+CLAUDE.md
